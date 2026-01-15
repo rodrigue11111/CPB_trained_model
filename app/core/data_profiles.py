@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import json
 
 import numpy as np
 import pandas as pd
@@ -29,6 +30,8 @@ DATASETS = {
     },
 }
 
+PROFILE_PATH = Path("app/assets/data_profiles.json")
+
 
 @dataclass
 class DataProfile:
@@ -37,6 +40,7 @@ class DataProfile:
     df: pd.DataFrame
     numeric_stats: dict
     categorical_values: dict
+    synthetic: bool = False
 
 
 def _first_sheet(path: str | Path) -> str:
@@ -66,6 +70,52 @@ def _compute_stats(df: pd.DataFrame) -> dict:
 
 
 @st.cache_data(show_spinner=False)
+def _load_profiles_json() -> dict:
+    """Charge les profils pre-calcules si disponibles (mode cloud)."""
+    if not PROFILE_PATH.exists():
+        return {}
+    try:
+        return json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _build_synthetic_df(
+    numeric_stats: dict,
+    categorical_values: dict,
+    tailings_default: str,
+) -> pd.DataFrame:
+    """Cree un petit DataFrame synthetique a partir des stats min/max.
+
+    Objectif:
+        Fournir un df_ref minimal pour le sampling lorsque les fichiers Excel
+        ne sont pas accessibles (ex: Streamlit Cloud).
+    """
+    numeric_cols = list(numeric_stats.keys())
+    if not numeric_cols:
+        return pd.DataFrame()
+
+    binders = categorical_values.get("Binder") or ["GUL"]
+    tailings_list = categorical_values.get("Tailings") or [tailings_default]
+
+    rows = []
+    for tail in tailings_list:
+        for binder in binders:
+            row_min = {col: numeric_stats[col].get("min") for col in numeric_cols}
+            row_max = {col: numeric_stats[col].get("max") for col in numeric_cols}
+            row_min["Tailings"] = tail
+            row_min["Binder"] = binder
+            row_max["Tailings"] = tail
+            row_max["Binder"] = binder
+            rows.extend([row_min, row_max])
+
+    df = pd.DataFrame(rows)
+    for col in numeric_cols:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df
+
+
+@st.cache_data(show_spinner=False)
 def load_profile(dataset_key: str) -> DataProfile | None:
     """Charge un profil de donnees pour un dataset.
 
@@ -79,30 +129,51 @@ def load_profile(dataset_key: str) -> DataProfile | None:
         return None
 
     path = Path(cfg["path"])
-    if not path.exists():
+    if path.exists():
+        sheet = cfg["sheet"]
+        if sheet is None:
+            sheet = _first_sheet(path)
+
+        try:
+            df = pd.read_excel(path, sheet_name=sheet, engine="openpyxl")
+            df["Tailings"] = cfg["tailings"]
+            df = clean_dataframe(df)
+            df = standardize_required_columns(df)
+        except Exception:
+            df = None
+
+        if df is not None:
+            numeric_stats = _compute_stats(df)
+            categorical_values = {}
+            for col in df.columns:
+                if col in {"Binder", "Tailings"}:
+                    values = sorted({str(v) for v in df[col].dropna().unique()})
+                    categorical_values[col] = values
+            return DataProfile(
+                df=df,
+                numeric_stats=numeric_stats,
+                categorical_values=categorical_values,
+                synthetic=False,
+            )
+
+    # Fallback: profil pre-calcule (utile en mode cloud sans data/)
+    profiles = _load_profiles_json()
+    profile = profiles.get(dataset_key)
+    if not profile:
         return None
 
-    sheet = cfg["sheet"]
-    if sheet is None:
-        sheet = _first_sheet(path)
+    numeric_stats = profile.get("numeric_stats", {})
+    categorical_values = profile.get("categorical_values", {})
+    df_synth = _build_synthetic_df(
+        numeric_stats, categorical_values, cfg["tailings"]
+    )
 
-    try:
-        df = pd.read_excel(path, sheet_name=sheet, engine="openpyxl")
-        df["Tailings"] = cfg["tailings"]
-        df = clean_dataframe(df)
-        df = standardize_required_columns(df)
-    except Exception:
-        # Erreur silencieuse: l'UI affichera un message si le profil est None.
-        return None
-
-    numeric_stats = _compute_stats(df)
-    categorical_values = {}
-    for col in df.columns:
-        if col in {"Binder", "Tailings"}:
-            values = sorted({str(v) for v in df[col].dropna().unique()})
-            categorical_values[col] = values
-
-    return DataProfile(df=df, numeric_stats=numeric_stats, categorical_values=categorical_values)
+    return DataProfile(
+        df=df_synth,
+        numeric_stats=numeric_stats,
+        categorical_values=categorical_values,
+        synthetic=True,
+    )
 
 
 def warn_out_of_profile(profile: DataProfile, inputs: dict) -> list[str]:

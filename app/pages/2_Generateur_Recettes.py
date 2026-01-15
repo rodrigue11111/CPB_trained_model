@@ -52,7 +52,8 @@ def main() -> None:
         st.error("Impossible de charger le dataset pour le sampling.")
         return
 
-    binders = profile.categorical_values.get("Binder", ["GUL", "Slag"])
+    cat_values = model_registry.get_categorical_values_for_tailings(bundle, tailings)
+    binders = profile.categorical_values.get("Binder") or cat_values.get("Binder") or ["GUL", "Slag"]
 
     st.subheader("Objectif et contraintes")
     mode = st.radio(
@@ -67,7 +68,14 @@ def main() -> None:
     with col2:
         top_k = st.number_input("Top K", value=50, step=10)
     with col3:
-        search_mode = st.selectbox("Search mode", ["uniform", "bootstrap"], index=1)
+        if profile.synthetic:
+            st.caption("Mode bootstrap indisponible (donnees brutes non disponibles).")
+            search_options = ["uniform"]
+            default_index = 0
+        else:
+            search_options = ["uniform", "bootstrap"]
+            default_index = 1
+        search_mode = st.selectbox("Search mode", search_options, index=default_index)
 
     binder_choice = st.selectbox("Binder", ["Tous"] + binders)
     selected_binders = binders if binder_choice == "Tous" else [binder_choice]
