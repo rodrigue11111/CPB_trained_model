@@ -1,0 +1,239 @@
+# -*- coding: utf-8 -*-
+"""Page Prédicteur Streamlit."""
+
+from __future__ import annotations
+
+import pandas as pd
+import streamlit as st
+
+from app.core import model_registry
+from app.core.data_profiles import load_profile, warn_out_of_profile
+from app.core.predict import build_input_frame, predict_targets, validate_inputs
+from app.ui.components import load_css, metric_card, section_header, warning_list
+
+
+def _unit_help(col: str) -> str:
+    units = {
+        "UCS28d (kPa)": "kPa",
+        "Slump (mm)": "mm",
+        "E/C": "rapport eau/ciment",
+        "Cw_f": "eau libre",
+        "Ad %": "%",
+    }
+    if col in units:
+        return units[col]
+    lowered = col.lower()
+    if any(ch.isdigit() for ch in lowered) and ("p" in lowered or "d" in lowered):
+        return "um (granulométrie)"
+    return ""
+
+
+def _classify_column(col: str) -> str:
+    name = col.lower()
+    if "muscovite" in name:
+        return "Paramètres additionnels"
+    if "p" in name and any(ch.isdigit() for ch in name):
+        return "Granulométrie"
+    if "d" in name and any(ch.isdigit() for ch in name):
+        return "Granulométrie"
+    return "Ingrédients / Dosages"
+
+
+def main() -> None:
+    st.title("Prédicteur CPB")
+    load_css("app/ui/styles.css")
+
+    with st.sidebar:
+        st.header("Configuration")
+        dataset_label = st.selectbox(
+            "Famille de tailings",
+            ["WW", "L01 OLD", "L01 NEW"],
+            index=0,
+        )
+        if dataset_label == "L01 NEW":
+            model_version = "FINAL_new_best"
+        else:
+            model_version = "FINAL_old_best"
+
+        st.caption("Modèle utilisé")
+        st.code(model_version)
+
+    bundle = model_registry.load_bundle(model_version)
+    if not bundle:
+        st.error(
+            "Modèles introuvables. Placez-les dans outputs/final_models ou "
+            "définissez MODEL_DOWNLOAD_URL dans secrets."
+        )
+        return
+
+    tailings = "WW" if dataset_label == "WW" else "L01"
+    slump_model, ucs_model = model_registry.resolve_tailings_model(bundle, tailings)
+    if not slump_model or not ucs_model:
+        st.error("Modèles incomplets pour ce tailings.")
+        return
+
+    features = model_registry.get_features_for_tailings(bundle, tailings)
+    if not features["categorical"] and not features["numeric"]:
+        st.error("Features non détectées dans metadata.json.")
+        return
+
+    profile_key = (
+        "WW" if dataset_label == "WW" else "L01_OLD" if dataset_label == "L01 OLD" else "L01_NEW"
+    )
+    profile = load_profile(profile_key)
+
+    # Si l'utilisateur change de dataset, on purge l'ancienne prédiction.
+    if st.session_state.get("last_dataset") != dataset_label:
+        st.session_state.pop("last_prediction", None)
+        st.session_state["last_dataset"] = dataset_label
+
+    st.subheader("Saisir une recette")
+
+    # Construction des inputs dynamiques (catégoriels + numériques).
+    inputs: dict = {}
+    with st.form("predictor_form"):
+        cat_cols = features["categorical"]
+        num_cols = features["numeric"]
+        # Afficher le ratio uniquement si le modèle attend la colonne.
+        has_ratio = "muscovite_ratio" in num_cols
+        num_cols_input = [col for col in num_cols if col != "muscovite_ratio"]
+
+        if cat_cols:
+            section_header("Paramètres catégoriels")
+            for col in cat_cols:
+                if col == "Tailings":
+                    inputs[col] = st.selectbox(col, options=[tailings], index=0)
+                    continue
+                if col == "Binder" and profile:
+                    options = profile.categorical_values.get("Binder", [])
+                else:
+                    options = ["GUL", "Slag"]
+                inputs[col] = st.selectbox(col, options=options)
+
+        sections = {
+            "Ingrédients / Dosages": [],
+            "Granulométrie": [],
+            "Paramètres additionnels": [],
+        }
+        for col in num_cols_input:
+            sections[_classify_column(col)].append(col)
+
+        for section, cols in sections.items():
+            if not cols:
+                continue
+            section_header(section)
+            for col in cols:
+                default_val = 0.0
+                if profile and col in profile.numeric_stats:
+                    default_val = profile.numeric_stats[col].get("mean", 0.0) or 0.0
+                inputs[col] = st.number_input(
+                    col,
+                    value=float(default_val),
+                    help=_unit_help(col),
+                )
+
+        if has_ratio:
+            section_header("Paramètres additionnels")
+            st.text_input(
+                "muscovite_ratio (calculé automatiquement)",
+                value="sera calculé après prédiction",
+                disabled=True,
+                key="muscovite_ratio_placeholder",
+            )
+
+        submitted = st.form_submit_button("Prédire")
+
+    if submitted:
+        required_cols = features["categorical"] + features["numeric"]
+        required_cols_input = [
+            col for col in required_cols if col != "muscovite_ratio"
+        ]
+        missing = validate_inputs(inputs, required_cols_input)
+        if missing:
+            st.error(f"Champs manquants: {', '.join(missing)}")
+            return
+
+        df_input = build_input_frame(inputs, required_cols)
+        if "muscovite_ratio" in required_cols:
+            inputs["muscovite_ratio"] = df_input["muscovite_ratio"].iloc[0]
+        slump_pred, ucs_pred = predict_targets(slump_model, ucs_model, df_input)
+
+        st.session_state["last_prediction"] = {
+            "inputs": inputs,
+            "slump_pred": slump_pred,
+            "ucs_pred": ucs_pred,
+            "required_cols": required_cols,
+            "tailings": tailings,
+        }
+
+    prediction = st.session_state.get("last_prediction")
+    if not prediction:
+        return
+
+    slump_pred = prediction["slump_pred"]
+    ucs_pred = prediction["ucs_pred"]
+    used_inputs = prediction["inputs"]
+
+    rmse = model_registry.get_rmse_for_tailings(bundle, tailings)
+    ucs_rmse = rmse.get("ucs")
+    slump_rmse = rmse.get("slump")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        status = "OK" if ucs_pred >= 900 else "Alerte"
+        metric_card("UCS prédit", f"{ucs_pred:.1f}", "kPa", status)
+        if ucs_rmse is not None:
+            st.caption(
+                f"UCS prédite = {ucs_pred:.1f} ± {ucs_rmse:.0f} kPa (RMSE approx.)"
+            )
+    with col2:
+        status = "OK" if slump_pred >= 70 else "Alerte"
+        metric_card("Slump prédit", f"{slump_pred:.1f}", "mm", status)
+        if slump_rmse is not None:
+            st.caption(
+                f"Slump prédit = {slump_pred:.1f} ± {slump_rmse:.0f} mm (RMSE approx.)"
+            )
+
+    st.subheader("Récapitulatif des inputs")
+    st.dataframe(pd.DataFrame([used_inputs]))
+
+    if profile:
+        warnings = warn_out_of_profile(profile, used_inputs)
+        warning_list(warnings)
+
+    if "muscovite_ratio" in features["numeric"]:
+        ratio_value = used_inputs.get("muscovite_ratio")
+        display_ratio = "N/A" if pd.isna(ratio_value) else f"{ratio_value:.4f}"
+        st.text_input(
+            "muscovite_ratio (calculé automatiquement)",
+            value=display_ratio,
+            disabled=True,
+            key="muscovite_ratio_value",
+        )
+        st.info(f"muscovite_ratio calculé automatiquement: {display_ratio}")
+
+    st.subheader("Comparer à un test labo (optionnel)")
+    col_a, col_b = st.columns(2)
+    with col_a:
+        ucs_labo = st.number_input("UCS labo (kPa)", value=0.0)
+    with col_b:
+        slump_labo = st.number_input("Slump labo (mm)", value=0.0)
+
+    if ucs_labo > 0:
+        err = ucs_pred - ucs_labo
+        st.write(
+            f"Erreur UCS: {err:.1f} kPa | "
+            f"Abs: {abs(err):.1f} kPa | "
+            f"%: {abs(err) / ucs_labo * 100:.1f}"
+        )
+    if slump_labo > 0:
+        err = slump_pred - slump_labo
+        st.write(
+            f"Erreur Slump: {err:.1f} mm | "
+            f"Abs: {abs(err):.1f} mm | "
+            f"%: {abs(err) / slump_labo * 100:.1f}"
+        )
+
+
+if __name__ == "__main__":
+    main()
