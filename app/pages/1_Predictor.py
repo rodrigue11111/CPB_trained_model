@@ -73,6 +73,7 @@ def main() -> None:
         return
 
     features = model_registry.get_features_for_tailings(bundle, tailings)
+    cat_values = model_registry.get_categorical_values_for_tailings(bundle, tailings)
     if not features["categorical"] and not features["numeric"]:
         st.error("Features non détectées dans metadata.json.")
         return
@@ -106,6 +107,8 @@ def main() -> None:
                     continue
                 if col == "Binder" and profile:
                     options = profile.categorical_values.get("Binder", [])
+                elif col in cat_values:
+                    options = cat_values[col]
                 else:
                     options = ["GUL", "Slag"]
                 inputs[col] = st.selectbox(col, options=options)

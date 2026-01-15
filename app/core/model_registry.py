@@ -14,6 +14,8 @@ import urllib.request
 
 import joblib
 import streamlit as st
+from sklearn.compose import ColumnTransformer, TransformedTargetRegressor
+from sklearn.pipeline import Pipeline
 
 MODEL_BASE_DIR = Path("outputs/final_models")
 
@@ -142,6 +144,60 @@ def resolve_tailings_model(bundle: ModelBundle, tailings: str) -> tuple:
     if tail == "L01" and bundle.models.get("l01_slump"):
         return bundle.models.get("l01_slump"), bundle.models.get("l01_ucs")
     return bundle.models.get("slump"), bundle.models.get("ucs")
+
+
+def _unwrap_estimator(estimator):
+    """Retourne le pipeline sous-jacent (si cible transformee)."""
+    if isinstance(estimator, TransformedTargetRegressor):
+        return estimator.regressor_ if hasattr(estimator, "regressor_") else estimator.regressor
+    return estimator
+
+
+def _extract_categorical_values(estimator) -> dict:
+    """Extrait les categories de l'encodeur OneHot si disponibles."""
+    estimator = _unwrap_estimator(estimator)
+    if not isinstance(estimator, Pipeline):
+        return {}
+    preprocessor = estimator.named_steps.get("preprocess")
+    if not isinstance(preprocessor, ColumnTransformer):
+        return {}
+
+    cat_cols = []
+    cat_transformer = None
+    for name, transformer, cols in preprocessor.transformers_:
+        if name == "cat":
+            cat_cols = list(cols)
+            cat_transformer = transformer
+            break
+    if not cat_cols or cat_transformer is None:
+        return {}
+
+    encoder = (
+        cat_transformer.named_steps.get("onehot")
+        if isinstance(cat_transformer, Pipeline)
+        else cat_transformer
+    )
+    categories = getattr(encoder, "categories_", None)
+    if not categories:
+        return {}
+
+    values = {}
+    for col, cats in zip(cat_cols, categories):
+        values[col] = [str(v) for v in cats]
+    return values
+
+
+def get_categorical_values_for_tailings(bundle: ModelBundle, tailings: str) -> dict:
+    """Retourne les categories observées par les modèles (fallback UI)."""
+    slump_model, ucs_model = resolve_tailings_model(bundle, tailings)
+    values: dict[str, set[str]] = {}
+    for model in (slump_model, ucs_model):
+        if not model:
+            continue
+        cats = _extract_categorical_values(model)
+        for col, options in cats.items():
+            values.setdefault(col, set()).update(options)
+    return {col: sorted(opts) for col, opts in values.items()}
 
 
 def get_features_for_tailings(bundle: ModelBundle, tailings: str) -> dict:
