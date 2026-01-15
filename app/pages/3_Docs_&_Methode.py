@@ -70,7 +70,6 @@ Valeurs indicatives (modèles finaux):
 - **FINAL_old_best** : UCS L01 R² ≈ 0.46, RMSE ≈ 359 kPa; UCS WW R² ≈ 0.94, RMSE ≈ 169 kPa.
 - **FINAL_new_best** : UCS L01 R² ≈ 0.86, RMSE ≈ 230 kPa; UCS WW R² ≈ 0.93, RMSE ≈ 174 kPa.
 
-**À retenir** : ces métriques sont globales et ne remplacent pas un essai labo.
 """
     )
 
