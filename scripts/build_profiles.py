@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 import json
 import sys
+import random
 
 import pandas as pd
 
@@ -38,6 +39,10 @@ DATASETS = {
     },
 }
 
+SEED = 42
+SAMPLE_FRACTION = 0.5
+MAX_VALUES_PER_COL = 5000
+
 
 def _first_sheet(path: str | Path) -> str:
     import openpyxl
@@ -65,8 +70,23 @@ def _compute_stats(df: pd.DataFrame) -> dict:
     return stats
 
 
+def _sample_values(series: pd.Series) -> list[float]:
+    values = pd.to_numeric(series, errors="coerce").dropna().tolist()
+    if not values:
+        return []
+    n = max(1, int(len(values) * SAMPLE_FRACTION))
+    if n >= len(values):
+        sampled = values
+    else:
+        sampled = random.sample(values, n)
+    if len(sampled) > MAX_VALUES_PER_COL:
+        sampled = random.sample(sampled, MAX_VALUES_PER_COL)
+    return [float(v) for v in sampled]
+
+
 def build_profiles() -> dict:
     profiles: dict = {}
+    random.seed(SEED)
     for key, cfg in DATASETS.items():
         path = Path(cfg["path"])
         if not path.exists():
@@ -83,6 +103,10 @@ def build_profiles() -> dict:
         df = standardize_required_columns(df)
 
         numeric_stats = _compute_stats(df)
+        sample_values: dict[str, list[float]] = {}
+        for col in df.columns:
+            if pd.api.types.is_numeric_dtype(df[col]):
+                sample_values[col] = _sample_values(df[col])
         categorical_values = {}
         for col in df.columns:
             if col in {"Binder", "Tailings"}:
@@ -92,6 +116,7 @@ def build_profiles() -> dict:
         profiles[key] = {
             "numeric_stats": numeric_stats,
             "categorical_values": categorical_values,
+            "sample_values": sample_values,
         }
         print(f"[OK] Built profile for {key} with {len(numeric_stats)} numeric cols.")
 

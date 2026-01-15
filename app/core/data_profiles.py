@@ -40,7 +40,9 @@ class DataProfile:
     df: pd.DataFrame
     numeric_stats: dict
     categorical_values: dict
+    sample_values: dict
     synthetic: bool = False
+    bootstrap_ready: bool = False
 
 
 def _first_sheet(path: str | Path) -> str:
@@ -83,13 +85,13 @@ def _load_profiles_json() -> dict:
 def _build_synthetic_df(
     numeric_stats: dict,
     categorical_values: dict,
+    sample_values: dict,
     tailings_default: str,
 ) -> pd.DataFrame:
-    """Cree un petit DataFrame synthetique a partir des stats min/max.
+    """Cree un DataFrame synthetique a partir des stats et d'echantillons.
 
-    Objectif:
-        Fournir un df_ref minimal pour le sampling lorsque les fichiers Excel
-        ne sont pas accessibles (ex: Streamlit Cloud).
+    Si sample_values est present, on construit un df plus realiste pour
+    permettre un bootstrap approximatif sans donnees brutes.
     """
     numeric_cols = list(numeric_stats.keys())
     if not numeric_cols:
@@ -98,18 +100,34 @@ def _build_synthetic_df(
     binders = categorical_values.get("Binder") or ["GUL"]
     tailings_list = categorical_values.get("Tailings") or [tailings_default]
 
+    base_len = 2
+    if sample_values:
+        lengths = [len(v) for v in sample_values.values() if v]
+        if lengths:
+            base_len = max(lengths)
+
+    data = {}
+    for col in numeric_cols:
+        values = list(sample_values.get(col, []))
+        if values:
+            if len(values) < base_len:
+                values = values + [np.nan] * (base_len - len(values))
+        else:
+            min_val = numeric_stats.get(col, {}).get("min")
+            max_val = numeric_stats.get(col, {}).get("max")
+            values = [min_val, max_val] + [np.nan] * (base_len - 2)
+        data[col] = values[:base_len]
+
+    base_df = pd.DataFrame(data)
     rows = []
     for tail in tailings_list:
         for binder in binders:
-            row_min = {col: numeric_stats[col].get("min") for col in numeric_cols}
-            row_max = {col: numeric_stats[col].get("max") for col in numeric_cols}
-            row_min["Tailings"] = tail
-            row_min["Binder"] = binder
-            row_max["Tailings"] = tail
-            row_max["Binder"] = binder
-            rows.extend([row_min, row_max])
+            df_copy = base_df.copy()
+            df_copy["Tailings"] = tail
+            df_copy["Binder"] = binder
+            rows.append(df_copy)
 
-    df = pd.DataFrame(rows)
+    df = pd.concat(rows, ignore_index=True)
     for col in numeric_cols:
         df[col] = pd.to_numeric(df[col], errors="coerce")
     return df
@@ -153,7 +171,9 @@ def load_profile(dataset_key: str) -> DataProfile | None:
                 df=df,
                 numeric_stats=numeric_stats,
                 categorical_values=categorical_values,
+                sample_values={},
                 synthetic=False,
+                bootstrap_ready=True,
             )
 
     # Fallback: profil pre-calcule (utile en mode cloud sans data/)
@@ -164,15 +184,19 @@ def load_profile(dataset_key: str) -> DataProfile | None:
 
     numeric_stats = profile.get("numeric_stats", {})
     categorical_values = profile.get("categorical_values", {})
+    sample_values = profile.get("sample_values", {})
     df_synth = _build_synthetic_df(
-        numeric_stats, categorical_values, cfg["tailings"]
+        numeric_stats, categorical_values, sample_values, cfg["tailings"]
     )
+    bootstrap_ready = bool(sample_values)
 
     return DataProfile(
         df=df_synth,
         numeric_stats=numeric_stats,
         categorical_values=categorical_values,
+        sample_values=sample_values,
         synthetic=True,
+        bootstrap_ready=bootstrap_ready,
     )
 
 

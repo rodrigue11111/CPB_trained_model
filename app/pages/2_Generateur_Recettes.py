@@ -68,7 +68,7 @@ def main() -> None:
     with col2:
         top_k = st.number_input("Top K", value=50, step=10)
     with col3:
-        if profile.synthetic:
+        if not profile.bootstrap_ready:
             st.caption("Mode bootstrap indisponible (donnees brutes non disponibles).")
             search_options = ["uniform"]
             default_index = 0
