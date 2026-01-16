@@ -82,7 +82,7 @@ Astuce : si aucun candidat ne passe, augmenter N ou rel\u00e2cher les seuils.
 ### Mod\u00e8les finaux et m\u00e9triques (focus UCS)
 **UCS est la cible principale.** Les valeurs ci-dessous viennent des CV 5-fold du projet.
 
-**Mod\u00e8les utilis\u00e9s (d\u00e9finition simple)**
+**Mod\u00e8les utilis\u00e9s**
 - **GradientBoostingRegressor (GBR)** : ensemble d'arbres ajout\u00e9s s\u00e9quentiellement, chaque arbre corrige l'erreur du pr\u00e9c\u00e9dent.
 - **ExtraTreesRegressor (ET)** : ensemble d'arbres tr\u00e8s al\u00e9atoires, robuste aux non-lin\u00e9arit\u00e9s.
 - **Slump** : mod\u00e8le s\u00e9par\u00e9 de l'UCS, entra\u00een\u00e9 sur la cible Slump (m\u00eames familles de mod\u00e8les).
