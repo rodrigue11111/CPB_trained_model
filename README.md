@@ -11,6 +11,16 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
+## Verrouillage des versions (reproductibilite)
+
+- `requirements.txt` est utilise par Streamlit Cloud.
+- `requirements-lock.txt` fige toutes les versions pour reproduire un environnement local.
+
+Installation locale identique :
+```bash
+pip install -r requirements-lock.txt
+```
+
 ## Donnees
 
 Placez les fichiers Excel dans le dossier `data/` :
