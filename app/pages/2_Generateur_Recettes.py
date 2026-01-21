@@ -20,7 +20,7 @@ def main() -> None:
     with st.sidebar:
         st.header("Configuration")
         dataset_label = st.selectbox(
-            "Famille de tailings",
+            "Famille de r\u00e9sidus",
             ["WW", "L01 OLD", "L01 NEW"],
             index=0,
         )
