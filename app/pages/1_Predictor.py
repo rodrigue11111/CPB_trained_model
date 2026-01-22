@@ -48,7 +48,7 @@ def main() -> None:
         dataset_label = st.selectbox(
             "Famille de r\u00e9sidus",
             ["WW", "L01 OLD", "L01 NEW"],
-            index=0,
+            index=2,
         )
         if dataset_label == "L01 NEW":
             model_version = "FINAL_new_best"
