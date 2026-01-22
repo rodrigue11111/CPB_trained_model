@@ -19,10 +19,6 @@ def main() -> None:
 - **L01 NEW** a un sch\u00e9ma enrichi (muscovite_added/total + muscovite_ratio).
 - Le mod\u00e8le s\u00e9lectionne dynamiquement les features disponibles, sans forcer un sch\u00e9ma unique.
 
-### Fit mode `hybrid_by_tailings`
-- Un mod\u00e8le **WW** et un mod\u00e8le **L01** distincts.
-- Permet d'optimiser chaque famille de tailings sans m\u00e9lange des distributions.
-
 ### Bootstrap vs Uniform (sampling)
 - **Uniform** : tirage al\u00e9atoire entre min et max observ\u00e9s.
 - **Bootstrap** : tirage parmi les valeurs observ\u00e9es (plus r\u00e9aliste).
@@ -31,8 +27,8 @@ def main() -> None:
 - **Tuning** : recherche d'hyperparam\u00e8tres (RandomizedSearchCV).
 - **Fixed params** : r\u00e9utilisation des meilleurs param\u00e8tres d'un sweep pour reproduire un run.
 
-### R2 et RMSE
-- **R2** proche de 1 : bonne explication de la variance.
+### R\u00b2 et RMSE
+- **R\u00b2** proche de 1 : bonne explication de la variance.
 - **RMSE** : erreur moyenne en unit\u00e9 cible (kPa / mm).
 - Dans l'app, le +/- affich\u00e9 correspond au RMSE (approx.), **pas** un intervalle statistique.
 
@@ -92,10 +88,10 @@ Astuce : si aucun candidat ne passe, augmenter N ou rel\u00e2cher les seuils.
 - **L01 OLD** : UCS = ExtraTreesRegressor (ET), Slump = GradientBoostingRegressor (GBR)
 - **L01 NEW** : UCS = ExtraTreesRegressor (ET), Slump = GradientBoostingRegressor (GBR)
 
-**M\u00e9triques UCS (R2 / RMSE kPa)**
-- **WW (OLD)** : R2 ~ 0.938, RMSE ~ 168.5
-- **L01 OLD** : R2 ~ 0.459, RMSE ~ 359.4
-- **L01 NEW** : R2 ~ 0.859, RMSE ~ 230.4
+**M\u00e9triques UCS (R\u00b2 / RMSE kPa)**
+- **WW (OLD)** : R\u00b2 ~ 0.938, RMSE ~ 168.5
+- **L01 OLD** : R\u00b2 ~ 0.459, RMSE ~ 359.4
+- **L01 NEW** : R\u00b2 ~ 0.859, RMSE ~ 230.4
 
 *(Info Slump)* : RMSE ~ 26-43 mm selon le dataset.
 '''
@@ -104,12 +100,12 @@ Astuce : si aucun candidat ne passe, augmenter N ou rel\u00e2cher les seuils.
     st.markdown(
         '''
 ### Mod\u00e8les test\u00e9s dans les sweeps (non retenus)
-- **RandomForestRegressor (RF)** : solide mais pas meilleur que GBR/ET sur le compromis R2/RMSE.
+- **RandomForestRegressor (RF)** : solide mais pas meilleur que GBR/ET sur le compromis R\u00b2/RMSE.
 - **HistGradientBoostingRegressor (HGB)** : rapide, mais r\u00e9sultats moins stables selon les seeds.
 - **Support Vector Regressor (SVR)** : sensible aux hyperparam\u00e8tres et \u00e0 l'\u00e9chelle des variables.
 - **ElasticNet** : mod\u00e8le lin\u00e9aire r\u00e9gularis\u00e9, sous-ajust\u00e9 pour des relations non lin\u00e9aires.
 
-Le choix final maximise l'UCS (R2 haut, RMSE bas) tout en restant stable entre seeds.
+Le choix final maximise l'UCS (R\u00b2 haut, RMSE bas) tout en restant stable entre seeds.
 '''
     )
 
@@ -119,7 +115,7 @@ Le choix final maximise l'UCS (R2 haut, RMSE bas) tout en restant stable entre s
 - **Taille d'\u00e9chantillon** : L01 OLD a moins de points utilisables, donc variance plus forte.
 - **Sch\u00e9ma de features** : L01 NEW est plus riche (muscovite_* + ratio), ce qui aide UCS.
 - **Variabilit\u00e9 labo / bruit** : certaines campagnes sont plus h\u00e9t\u00e9rog\u00e8nes, RMSE plus \u00e9lev\u00e9.
-- **Distribution diff\u00e9rente** : WW est plus homog\u00e8ne, donc R2 plus haut.
+- **Distribution diff\u00e9rente** : WW est plus homog\u00e8ne, donc R\u00b2 plus haut.
 '''
     )
 
