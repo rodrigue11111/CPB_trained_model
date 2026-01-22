@@ -13,14 +13,14 @@ import streamlit as st
 
 from app.ui.components import load_css
 
-st.set_page_config(page_title="CPB Predictor", layout="wide")
+st.set_page_config(page_title="Pr\u00e9dicteur CPB", layout="wide")
 load_css("app/ui/styles.css")
 
 PAGES = {
-    "Prédicteur": Path("app/pages/1_Predictor.py"),
-    "Générateur de recettes": Path("app/pages/2_Generateur_Recettes.py"),
-    "Docs & Méthode": Path("app/pages/3_Docs_&_Methode.py"),
-    "Debug modèles": Path("app/pages/4_Debug_Modeles.py"),
+    "Pr\u00e9dicteur": Path("app/pages/1_Predictor.py"),
+    "G\u00e9n\u00e9rateur de recettes": Path("app/pages/2_Generateur_Recettes.py"),
+    "Docs & M\u00e9thode": Path("app/pages/3_Docs_&_Methode.py"),
+    "Debug mod\u00e8les": Path("app/pages/4_Debug_Modeles.py"),
 }
 
 
@@ -35,7 +35,7 @@ def _load_page(path: Path):
 
 
 with st.sidebar:
-    st.title("CPB Predictor")
+    st.title("Pr\u00e9dicteur CPB")
     selection = st.radio("Navigation", list(PAGES.keys()))
     st.caption("Choisissez une page pour commencer.")
 
