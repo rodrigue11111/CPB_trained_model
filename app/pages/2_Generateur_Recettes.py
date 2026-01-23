@@ -73,8 +73,15 @@ def _badge_for_level(level: str) -> str:
     if level == "warn":
         return badge("Attention", "warn")
     if level == "out":
-        return badge("Hors domaine", "fail")
+        return badge("Hors distribution", "fail")
     return badge("Inconnu", "warn")
+
+
+def _safe_selectbox(label: str, options: list[str], key: str, default: str | None = None) -> str:
+    if key in st.session_state and st.session_state[key] not in options:
+        st.session_state.pop(key)
+    index = options.index(default) if default in options else 0
+    return st.selectbox(label, options, index=index, key=key)
 
 
 def main() -> None:
@@ -83,10 +90,11 @@ def main() -> None:
 
     with st.sidebar:
         st.header("Configuration")
-        dataset_label = st.selectbox(
+        dataset_label = _safe_selectbox(
             "Famille de r\u00e9sidus",
             ["WW", "L01 OLD", "L01 NEW"],
-            index=2,
+            key="gen_dataset",
+            default="L01 NEW",
         )
         if dataset_label == "L01 NEW":
             model_version = "FINAL_new_best"
@@ -131,13 +139,14 @@ def main() -> None:
         "Type d'objectif",
         ["Contraintes min", "Cible + tol\u00e9rance"],
         horizontal=True,
+        key="gen_mode",
     )
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        n_samples = st.number_input("N candidats", value=15000, step=1000)
+        n_samples = st.number_input("N candidats", value=15000, step=1000, key="gen_n_samples")
     with col2:
-        top_k = st.number_input("Top K", value=50, step=10)
+        top_k = st.number_input("Top K", value=50, step=10, key="gen_top_k")
     with col3:
         if not profile.bootstrap_ready:
             st.caption("Mode bootstrap indisponible (donn\u00e9es brutes non disponibles).")
@@ -146,9 +155,9 @@ def main() -> None:
         else:
             search_options = ["uniform", "bootstrap"]
             default_index = 1
-        search_mode = st.selectbox("Search mode", search_options, index=default_index)
+        search_mode = st.selectbox("Search mode", search_options, index=default_index, key="gen_search_mode")
 
-    binder_choice = st.selectbox("Binder", ["Tous"] + binders)
+    binder_choice = _safe_selectbox("Binder", ["Tous"] + binders, key="gen_binder", default="Tous")
     selected_binders = binders if binder_choice == "Tous" else [binder_choice]
 
     slump_min = ucs_min = None
@@ -158,31 +167,35 @@ def main() -> None:
     if mode == "Contraintes min":
         c1, c2 = st.columns(2)
         with c1:
-            slump_min = st.number_input("Slump >= (mm)", value=70.0)
+            slump_min = st.number_input("Slump >= (mm)", value=70.0, key="gen_slump_min")
         with c2:
-            ucs_min = st.number_input("UCS >= (kPa)", value=900.0)
+            ucs_min = st.number_input("UCS >= (kPa)", value=900.0, key="gen_ucs_min")
     else:
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            slump_target = st.number_input("Slump cible (mm)", value=100.0)
+            slump_target = st.number_input("Slump cible (mm)", value=100.0, key="gen_slump_target")
         with c2:
-            tol_slump = st.number_input("Tol Slump (+/-)", value=10.0)
+            tol_slump = st.number_input("Tol Slump (+/-)", value=10.0, key="gen_tol_slump")
         with c3:
-            ucs_target = st.number_input("UCS cible (kPa)", value=1200.0)
+            ucs_target = st.number_input("UCS cible (kPa)", value=1200.0, key="gen_ucs_target")
         with c4:
-            tol_ucs = st.number_input("Tol UCS (+/-)", value=100.0)
+            tol_ucs = st.number_input("Tol UCS (+/-)", value=100.0, key="gen_tol_ucs")
 
     advanced = st.toggle(
         "Mode avanc\u00e9",
         value=False,
+        key="gen_advanced",
         help="Contraindre certaines variables num\u00e9riques du mod\u00e8le.",
     )
 
-    allow_extrapolation = st.toggle(
-        "Autoriser l'extrapolation (hors min/max)",
-        value=False,
-        help="A activer uniquement si vous assumez la prediction hors domaine.",
-    )
+    allow_extrapolation = False
+    if advanced:
+        allow_extrapolation = st.toggle(
+            "Autoriser l'extrapolation (hors min/max)",
+            value=False,
+            key="gen_allow_extrapolation",
+            help="A activer uniquement si vous assumez la prediction hors domaine.",
+        )
 
     constraints: dict[str, dict[str, Any]] = {}
     blocked_fields: list[str] = []
@@ -190,34 +203,24 @@ def main() -> None:
 
     if advanced:
         _ensure_state("constraint_features", [])
-        with st.expander("Contraintes sur les variables num\u00e9riques", expanded=False):
+        with st.expander("Param\u00e8tres avanc\u00e9s", expanded=False):
             st.caption(
                 "Choisissez les variables \u00e0 fixer ou borner. Les autres resteront "
                 "tir\u00e9es automatiquement selon le mode de recherche."
             )
 
-            show_all = st.toggle(
-                "Afficher toutes les variables du dataset",
-                value=False,
-            )
-            all_numeric = sorted(set(model_numeric) | set(profile.numeric_stats.keys()))
-            selectable = all_numeric if show_all else model_numeric
-
             p1, p2 = st.columns(2)
             with p1:
                 if st.button("Preset LOT (mat\u00e9riau)"):
-                    _apply_preset(selectable, LOT_FEATURES, "constraint_features")
+                    _apply_preset(model_numeric, LOT_FEATURES, "constraint_features")
             with p2:
                 if st.button("Preset RECETTE (proc\u00e9d\u00e9)"):
-                    _apply_preset(selectable, RECIPE_FEATURES, "constraint_features")
+                    _apply_preset(model_numeric, RECIPE_FEATURES, "constraint_features")
 
             selected_features = st.multiselect(
                 "Variables \u00e0 contraindre",
-                options=selectable,
+                options=model_numeric,
                 key="constraint_features",
-                format_func=lambda c: (
-                    f"{c} (n'influence pas la pr\u00e9diction)" if c not in model_numeric else c
-                ),
             )
 
             for col in selected_features:
@@ -364,21 +367,23 @@ def main() -> None:
     validation = stats.get("validation", {})
     if validation:
         with st.expander("Qualit\u00e9 des entr\u00e9es", expanded=False):
-            if validation.get("ood_features"):
-                st.warning("Variables hors domaine d'entra\u00eenement :")
+            ood_count = len(validation.get("ood_features", []))
+            clamp_count = len(validation.get("clamped_ranges", []))
+            st.write(f"Variables hors distribution: {ood_count}")
+            st.write(f"Plages ajust\u00e9es: {clamp_count}")
+            if ood_count:
+                st.caption("Variables hors distribution :")
                 for item in validation["ood_features"]:
                     st.write(f"- {item.get('feature')}")
-            if validation.get("clamped_ranges"):
-                st.info("Plages ajust\u00e9es au domaine d'entra\u00eenement :")
+            if clamp_count:
+                st.caption("Plages ajust\u00e9es :")
                 for item in validation["clamped_ranges"]:
                     st.write(
                         f"- {item.get('feature')}: [{item.get('min_before'):.3f}, {item.get('max_before'):.3f}] -> "
                         f"[{item.get('min_after'):.3f}, {item.get('max_after'):.3f}]"
                     )
-            if not validation.get("ood_features") and not validation.get("clamped_ranges"):
-                st.write("Aucune alerte OOD.")
 
-    show_non_pass = st.toggle("Montrer aussi les non-pass", value=False)
+    show_non_pass = st.toggle("Montrer aussi les non-pass", value=False, key="gen_show_non_pass")
 
     df_top = select_top_k_pass(ranked_df, int(top_k))
     if df_top.empty:
