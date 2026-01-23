@@ -1,0 +1,53 @@
+Regles arbre global
+
+Comment lire les regles :
+- Chaque ligne est une condition sur une variable.
+- La derniere ligne indique la prediction UCS (kPa).
+
+|--- cat__Binder_20G80S <= 0.50
+|   |--- num__E/C <= 6.36
+|   |   |--- num__Ad % <= 1.12
+|   |   |   |--- num__Ad % <= 0.38
+|   |   |   |   |--- value: [892.95]
+|   |   |   |--- num__Ad % >  0.38
+|   |   |   |   |--- value: [731.12]
+|   |   |--- num__Ad % >  1.12
+|   |   |   |--- num__Ad % <= 2.25
+|   |   |   |   |--- value: [1264.40]
+|   |   |   |--- num__Ad % >  2.25
+|   |   |   |   |--- value: [994.13]
+|   |--- num__E/C >  6.36
+|   |   |--- num__Gs <= 3.11
+|   |   |   |--- num__P80 (µm) <= 79.16
+|   |   |   |   |--- value: [450.94]
+|   |   |   |--- num__P80 (µm) >  79.16
+|   |   |   |   |--- value: [558.40]
+|   |   |--- num__Gs >  3.11
+|   |   |   |--- num__Ad % <= 1.12
+|   |   |   |   |--- value: [701.70]
+|   |   |   |--- num__Ad % >  1.12
+|   |   |   |   |--- value: [862.95]
+|--- cat__Binder_20G80S >  0.50
+|   |--- num__Gs <= 3.11
+|   |   |--- num__Ad % <= 2.25
+|   |   |   |--- num__Cw_f <= 65.67
+|   |   |   |   |--- value: [825.65]
+|   |   |   |--- num__Cw_f >  65.67
+|   |   |   |   |--- value: [1161.71]
+|   |   |--- num__Ad % >  2.25
+|   |   |   |--- num__muscovite_ratio <= 0.07
+|   |   |   |   |--- value: [1381.55]
+|   |   |   |--- num__muscovite_ratio >  0.07
+|   |   |   |   |--- value: [607.76]
+|   |--- num__Gs >  3.11
+|   |   |--- num__Cw_f <= 70.00
+|   |   |   |--- num__Ad % <= 2.25
+|   |   |   |   |--- value: [1479.36]
+|   |   |   |--- num__Ad % >  2.25
+|   |   |   |   |--- value: [636.75]
+|   |   |--- num__Cw_f >  70.00
+|   |   |   |--- num__Ad % <= 2.25
+|   |   |   |   |--- value: [2164.41]
+|   |   |   |--- num__Ad % >  2.25
+|   |   |   |   |--- value: [1719.62]
+

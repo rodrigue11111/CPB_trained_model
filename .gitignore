@@ -4,5 +4,7 @@ __pycache__/
 outputs/*
 !outputs/interpretability/
 !outputs/interpretability/**/*
+!outputs/formulas/
+!outputs/formulas/**/*
 data/
 Ikram_documents/

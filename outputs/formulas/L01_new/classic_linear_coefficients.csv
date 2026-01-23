@@ -1,0 +1,14 @@
+term_name,coefficient,feature_source,term_type
+intercept,-8096.26264095206,intercept,intercept
+Gs,419.0877864625499,Gs,numeric
+Binder_20G80S,230.78924021507123,Binder,categorical
+Binder_GUL,-230.78924021507123,Binder,categorical
+E/C,-115.94501494200993,E/C,numeric
+P80 (µm),88.45691444411956,P80 (µm),numeric
+Ad %,-41.40149396065784,Ad %,numeric
+muscovite_ratio,36.45612417524351,muscovite_ratio,numeric
+Cw_f,33.820588472357095,Cw_f,numeric
+phyllosilicates (%),-18.457548546484865,phyllosilicates (%),numeric
+P20 (µm),-13.124486645436503,P20 (µm),numeric
+muscovite_added (%),12.095252089097295,muscovite_added (%),numeric
+muscovite_total (%),10.083483802714406,muscovite_total (%),numeric

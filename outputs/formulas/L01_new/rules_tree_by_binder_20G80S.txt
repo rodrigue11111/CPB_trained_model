@@ -1,0 +1,44 @@
+Regles arbre - Binder 20G80S
+
+Comment lire les regles :
+- Chaque ligne est une condition sur une variable.
+- La derniere ligne indique la prediction UCS (kPa).
+
+|--- Gs <= 3.11
+|   |--- Ad % <= 2.25
+|   |   |--- Cw_f <= 65.67
+|   |   |   |--- phyllosilicates (%) <= 38.86
+|   |   |   |   |--- value: [880.38]
+|   |   |   |--- phyllosilicates (%) >  38.86
+|   |   |   |   |--- value: [716.20]
+|   |   |--- Cw_f >  65.67
+|   |   |   |--- Gs <= 3.00
+|   |   |   |   |--- value: [1526.87]
+|   |   |   |--- Gs >  3.00
+|   |   |   |   |--- value: [1125.19]
+|   |--- Ad % >  2.25
+|   |   |--- muscovite_total (%) <= 19.56
+|   |   |   |--- value: [1381.55]
+|   |   |--- muscovite_total (%) >  19.56
+|   |   |   |--- phyllosilicates (%) <= 33.47
+|   |   |   |   |--- value: [330.75]
+|   |   |   |--- phyllosilicates (%) >  33.47
+|   |   |   |   |--- value: [718.57]
+|--- Gs >  3.11
+|   |--- Cw_f <= 70.00
+|   |   |--- Ad % <= 2.25
+|   |   |   |--- Ad % <= 1.12
+|   |   |   |   |--- value: [1518.48]
+|   |   |   |--- Ad % >  1.12
+|   |   |   |   |--- value: [1381.55]
+|   |   |--- Ad % >  2.25
+|   |   |   |--- value: [636.75]
+|   |--- Cw_f >  70.00
+|   |   |--- Ad % <= 2.25
+|   |   |   |--- Ad % <= 0.38
+|   |   |   |   |--- value: [1743.93]
+|   |   |   |--- Ad % >  0.38
+|   |   |   |   |--- value: [2304.57]
+|   |   |--- Ad % >  2.25
+|   |   |   |--- value: [1719.62]
+

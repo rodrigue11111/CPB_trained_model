@@ -1,0 +1,53 @@
+Regles arbre - Binder GUL
+
+Comment lire les regles :
+- Chaque ligne est une condition sur une variable.
+- La derniere ligne indique la prediction UCS (kPa).
+
+|--- E/C <= 6.36
+|   |--- Ad % <= 1.12
+|   |   |--- Ad % <= 0.38
+|   |   |   |--- phyllosilicates (%) <= 33.47
+|   |   |   |   |--- value: [963.65]
+|   |   |   |--- phyllosilicates (%) >  33.47
+|   |   |   |   |--- value: [786.89]
+|   |   |--- Ad % >  0.38
+|   |   |   |--- phyllosilicates (%) <= 29.47
+|   |   |   |   |--- value: [483.10]
+|   |   |   |--- phyllosilicates (%) >  29.47
+|   |   |   |   |--- value: [855.14]
+|   |--- Ad % >  1.12
+|   |   |--- Ad % <= 2.25
+|   |   |   |--- P20 (µm) <= 41.74
+|   |   |   |   |--- value: [1315.43]
+|   |   |   |--- P20 (µm) >  41.74
+|   |   |   |   |--- value: [1187.85]
+|   |   |--- Ad % >  2.25
+|   |   |   |--- P20 (µm) <= 40.34
+|   |   |   |   |--- value: [1105.25]
+|   |   |   |--- P20 (µm) >  40.34
+|   |   |   |   |--- value: [883.02]
+|--- E/C >  6.36
+|   |--- muscovite_added (%) <= 1.50
+|   |   |--- Ad % <= 1.12
+|   |   |   |--- Ad % <= 0.38
+|   |   |   |   |--- value: [663.02]
+|   |   |   |--- Ad % >  0.38
+|   |   |   |   |--- value: [740.37]
+|   |   |--- Ad % >  1.12
+|   |   |   |--- Ad % <= 2.25
+|   |   |   |   |--- value: [949.77]
+|   |   |   |--- Ad % >  2.25
+|   |   |   |   |--- value: [776.12]
+|   |--- muscovite_added (%) >  1.50
+|   |   |--- muscovite_ratio <= 0.24
+|   |   |   |--- Ad % <= 2.25
+|   |   |   |   |--- value: [587.41]
+|   |   |   |--- Ad % >  2.25
+|   |   |   |   |--- value: [500.38]
+|   |   |--- muscovite_ratio >  0.24
+|   |   |   |--- Cw_f <= 68.35
+|   |   |   |   |--- value: [434.07]
+|   |   |   |--- Cw_f >  68.35
+|   |   |   |   |--- value: [653.37]
+
