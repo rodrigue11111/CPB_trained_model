@@ -11,9 +11,14 @@ import pandas as pd
 import streamlit as st
 
 from app.core import model_registry
-from app.core.data_profiles import load_profile
+from app.core.data_profiles import (
+    format_bounds,
+    get_feature_profile,
+    load_profile,
+    ood_level,
+)
 from app.core.recipe_generator import generate_recipes, select_top_k_pass, to_excel_bytes
-from app.ui.components import load_css, section_header
+from app.ui.components import badge, load_css, section_header
 
 LOT_FEATURES = [
     "P20 (\u00b5m)",
@@ -62,6 +67,16 @@ def _apply_preset(options: list[str], preset: list[str], key: str) -> None:
     st.session_state[key] = sorted(selected)
 
 
+def _badge_for_level(level: str) -> str:
+    if level == "ok":
+        return badge("OK", "ok")
+    if level == "warn":
+        return badge("Attention", "warn")
+    if level == "out":
+        return badge("Hors domaine", "fail")
+    return badge("Inconnu", "warn")
+
+
 def main() -> None:
     st.title("G\u00e9n\u00e9rateur de recettes")
     load_css("app/ui/styles.css")
@@ -96,9 +111,9 @@ def main() -> None:
         return
 
     features = model_registry.get_features_for_tailings(bundle, tailings)
-    numeric_features = features.get("numeric", [])
+    model_numeric = features.get("numeric", [])
     categorical_features = features.get("categorical", [])
-    if not numeric_features:
+    if not model_numeric:
         st.error("Features introuvables dans metadata.json.")
         return
 
@@ -163,7 +178,16 @@ def main() -> None:
         help="Contraindre certaines variables num\u00e9riques du mod\u00e8le.",
     )
 
+    allow_extrapolation = st.toggle(
+        "Autoriser l'extrapolation (hors min/max)",
+        value=False,
+        help="A activer uniquement si vous assumez la prediction hors domaine.",
+    )
+
     constraints: dict[str, dict[str, Any]] = {}
+    blocked_fields: list[str] = []
+    clamp_messages: list[str] = []
+
     if advanced:
         _ensure_state("constraint_features", [])
         with st.expander("Contraintes sur les variables num\u00e9riques", expanded=False):
@@ -171,22 +195,36 @@ def main() -> None:
                 "Choisissez les variables \u00e0 fixer ou borner. Les autres resteront "
                 "tir\u00e9es automatiquement selon le mode de recherche."
             )
+
+            show_all = st.toggle(
+                "Afficher toutes les variables du dataset",
+                value=False,
+            )
+            all_numeric = sorted(set(model_numeric) | set(profile.numeric_stats.keys()))
+            selectable = all_numeric if show_all else model_numeric
+
             p1, p2 = st.columns(2)
             with p1:
                 if st.button("Preset LOT (mat\u00e9riau)"):
-                    _apply_preset(numeric_features, LOT_FEATURES, "constraint_features")
+                    _apply_preset(selectable, LOT_FEATURES, "constraint_features")
             with p2:
                 if st.button("Preset RECETTE (proc\u00e9d\u00e9)"):
-                    _apply_preset(numeric_features, RECIPE_FEATURES, "constraint_features")
+                    _apply_preset(selectable, RECIPE_FEATURES, "constraint_features")
 
             selected_features = st.multiselect(
                 "Variables \u00e0 contraindre",
-                options=numeric_features,
+                options=selectable,
                 key="constraint_features",
+                format_func=lambda c: (
+                    f"{c} (n'influence pas la pr\u00e9diction)" if c not in model_numeric else c
+                ),
             )
 
             for col in selected_features:
                 min_val, max_val, mean_val = _default_range(profile, profile.df, col)
+                profile_stats = get_feature_profile(profile, col)
+                bounds_text = format_bounds(profile_stats)
+
                 st.markdown(f"**{col}**")
                 mode_choice = st.radio(
                     f"Mode {col}",
@@ -201,6 +239,18 @@ def main() -> None:
                         key=f"constraint_value_{col}",
                     )
                     constraints[col] = {"mode": "fixed", "value": value}
+
+                    status = ood_level(value, profile_stats)
+                    st.markdown(
+                        f"{_badge_for_level(status['level'])} " +
+                        (f"Training: {bounds_text}" if bounds_text else "Profil insuffisant"),
+                        unsafe_allow_html=True,
+                    )
+                    if status["level"] == "out" and not allow_extrapolation:
+                        blocked_fields.append(col)
+                        st.error(
+                            "Valeur hors domaine d'entra\u00eenement : le mod\u00e8le extrapole."
+                        )
                 else:
                     cmin, cmax = st.columns(2)
                     with cmin:
@@ -215,14 +265,60 @@ def main() -> None:
                             value=float(max_val),
                             key=f"constraint_max_{col}",
                         )
-                    constraints[col] = {"mode": "range", "min": min_in, "max": max_in}
 
-            if "muscovite_ratio" in numeric_features and "muscovite_ratio" not in constraints:
+                    min_adj, max_adj = min_in, max_in
+                    min_profile = profile_stats.get("min")
+                    max_profile = profile_stats.get("max")
+                    if not allow_extrapolation and min_profile is not None and max_profile is not None:
+                        min_adj = max(min_in, float(min_profile))
+                        max_adj = min(max_in, float(max_profile))
+                        if min_adj != min_in or max_adj != max_in:
+                            clamp_messages.append(
+                                f"{col}: plage ajust\u00e9e a [{min_adj:.3f}, {max_adj:.3f}]"
+                            )
+
+                    constraints[col] = {"mode": "range", "min": min_adj, "max": max_adj}
+
+                    status_min = ood_level(min_in, profile_stats)
+                    status_max = ood_level(max_in, profile_stats)
+                    levels = {status_min["level"], status_max["level"]}
+                    if "out" in levels:
+                        level = "out"
+                    elif "warn" in levels:
+                        level = "warn"
+                    elif "unknown" in levels:
+                        level = "unknown"
+                    else:
+                        level = "ok"
+
+                    st.markdown(
+                        f"{_badge_for_level(level)} " +
+                        (f"Training: {bounds_text}" if bounds_text else "Profil insuffisant"),
+                        unsafe_allow_html=True,
+                    )
+                    if level == "out" and not allow_extrapolation:
+                        st.warning(
+                            "Plage hors domaine : ajust\u00e9e automatiquement au domaine d'entra\u00eenement."
+                        )
+
+            if clamp_messages:
+                st.warning("Plages ajust\u00e9es : " + " | ".join(clamp_messages))
+
+            if "muscovite_ratio" in model_numeric and "muscovite_ratio" not in constraints:
                 st.caption("muscovite_ratio est calcul\u00e9 automatiquement si possible.")
+
+    if blocked_fields and not allow_extrapolation:
+        st.warning(
+            "Certaines valeurs fixes sont hors domaine. Corrigez-les ou activez l'extrapolation."
+        )
 
     run = st.button("G\u00e9n\u00e9rer", type="primary")
 
     if not run:
+        return
+
+    if blocked_fields and not allow_extrapolation:
+        st.error("G\u00e9n\u00e9ration bloqu\u00e9e : valeurs hors domaine d'entra\u00eenement.")
         return
 
     start = time.time()
@@ -246,10 +342,11 @@ def main() -> None:
                 slump_model=slump_model,
                 ucs_model=ucs_model,
                 constraints=constraints,
-                numeric_features=numeric_features,
+                numeric_features=model_numeric,
                 categorical_features=categorical_features,
                 numeric_stats=profile.numeric_stats,
                 sample_values=profile.sample_values,
+                allow_extrapolation=allow_extrapolation,
             )
         except Exception as exc:
             st.error(f"Erreur pendant la g\u00e9n\u00e9ration: {exc}")
@@ -263,6 +360,23 @@ def main() -> None:
     section_header("R\u00e9sultats")
     st.write(f"Pass rate: {pass_rate:.2f} %")
     st.write(f"Temps d'ex\u00e9cution: {elapsed:.2f} s")
+
+    validation = stats.get("validation", {})
+    if validation:
+        with st.expander("Qualit\u00e9 des entr\u00e9es", expanded=False):
+            if validation.get("ood_features"):
+                st.warning("Variables hors domaine d'entra\u00eenement :")
+                for item in validation["ood_features"]:
+                    st.write(f"- {item.get('feature')}")
+            if validation.get("clamped_ranges"):
+                st.info("Plages ajust\u00e9es au domaine d'entra\u00eenement :")
+                for item in validation["clamped_ranges"]:
+                    st.write(
+                        f"- {item.get('feature')}: [{item.get('min_before'):.3f}, {item.get('max_before'):.3f}] -> "
+                        f"[{item.get('min_after'):.3f}, {item.get('max_after'):.3f}]"
+                    )
+            if not validation.get("ood_features") and not validation.get("clamped_ranges"):
+                st.write("Aucune alerte OOD.")
 
     show_non_pass = st.toggle("Montrer aussi les non-pass", value=False)
 

@@ -8,7 +8,16 @@ import json
 
 import numpy as np
 import pandas as pd
-import streamlit as st
+try:
+    import streamlit as st
+except Exception:  # pragma: no cover - fallback pour tests sans Streamlit
+    class _DummyStreamlit:
+        def cache_data(self, *args, **kwargs):
+            def decorator(func):
+                return func
+            return decorator
+
+    st = _DummyStreamlit()
 
 from src.schema import clean_dataframe, standardize_required_columns
 
@@ -62,11 +71,24 @@ def _compute_stats(df: pd.DataFrame) -> dict:
     for col in df.columns:
         if pd.api.types.is_numeric_dtype(df[col]):
             series = pd.to_numeric(df[col], errors="coerce")
+            if series.notna().any():
+                q05 = float(series.quantile(0.05))
+                q95 = float(series.quantile(0.95))
+                q25 = float(series.quantile(0.25))
+                q75 = float(series.quantile(0.75))
+                iqr = float(q75 - q25)
+            else:
+                q05 = q95 = q25 = q75 = iqr = np.nan
             stats[col] = {
                 "min": float(series.min(skipna=True)) if series.notna().any() else np.nan,
                 "max": float(series.max(skipna=True)) if series.notna().any() else np.nan,
                 "mean": float(series.mean(skipna=True)) if series.notna().any() else np.nan,
                 "std": float(series.std(skipna=True)) if series.notna().any() else np.nan,
+                "p05": q05,
+                "p95": q95,
+                "q1": q25,
+                "q3": q75,
+                "iqr": iqr,
             }
     return stats
 
@@ -226,3 +248,96 @@ def warn_out_of_profile(profile: DataProfile, inputs: dict) -> list[str]:
             if z >= 3:
                 warnings.append(f"{col}: z-score {z:.2f} (valeur atypique)")
     return warnings
+
+
+def _percentiles_from_values(values: np.ndarray) -> dict:
+    if values.size == 0:
+        return {}
+    values = values[~np.isnan(values)]
+    if values.size == 0:
+        return {}
+    return {
+        "p05": float(np.nanpercentile(values, 5)),
+        "p95": float(np.nanpercentile(values, 95)),
+        "q1": float(np.nanpercentile(values, 25)),
+        "q3": float(np.nanpercentile(values, 75)),
+        "iqr": float(np.nanpercentile(values, 75) - np.nanpercentile(values, 25)),
+    }
+
+
+def get_feature_profile(
+    profile: DataProfile,
+    feature_name: str,
+) -> dict:
+    """Retourne un profil de feature enrichi (min/max, p05/p95, mean/std)."""
+    if not profile:
+        return {}
+
+    base = dict(profile.numeric_stats.get(feature_name, {}))
+
+    # Enrichit avec les percentiles si absents.
+    if ("p05" not in base or "p95" not in base) and profile.df is not None:
+        if feature_name in profile.df.columns:
+            values = pd.to_numeric(profile.df[feature_name], errors="coerce").to_numpy()
+            base.update(_percentiles_from_values(values))
+
+    if ("p05" not in base or "p95" not in base) and profile.sample_values:
+        values = np.asarray(profile.sample_values.get(feature_name, []), dtype=float)
+        base.update(_percentiles_from_values(values))
+
+    return base
+
+
+def _fallback_percentiles(profile: dict) -> tuple[float | None, float | None]:
+    """Renvoie p05/p95 avec fallback mean +/- 2*std ou min/max."""
+    p05 = profile.get("p05")
+    p95 = profile.get("p95")
+    if p05 is None or p95 is None or np.isnan(p05) or np.isnan(p95):
+        mean = profile.get("mean")
+        std = profile.get("std")
+        if mean is not None and std not in (None, 0) and not np.isnan(std):
+            return float(mean - 2 * std), float(mean + 2 * std)
+        min_val = profile.get("min")
+        max_val = profile.get("max")
+        if min_val is not None and max_val is not None:
+            return float(min_val), float(max_val)
+        return None, None
+    return float(p05), float(p95)
+
+
+def ood_level(value: float | None, profile: dict) -> dict:
+    """Retourne un niveau OOD (ok/warn/out/unknown) et un message."""
+    if value is None:
+        return {"level": "unknown", "message": "Profil insuffisant", "bounds": {}}
+    try:
+        val = float(value)
+    except (TypeError, ValueError):
+        return {"level": "unknown", "message": "Valeur invalide", "bounds": {}}
+
+    min_val = profile.get("min")
+    max_val = profile.get("max")
+    if min_val is None or max_val is None or np.isnan(min_val) or np.isnan(max_val):
+        return {"level": "unknown", "message": "Profil insuffisant", "bounds": {}}
+
+    p05, p95 = _fallback_percentiles(profile)
+    bounds = {"min": min_val, "max": max_val, "p05": p05, "p95": p95}
+
+    if val < min_val or val > max_val:
+        return {"level": "out", "message": "Hors domaine", "bounds": bounds}
+    if p05 is not None and p95 is not None and (val < p05 or val > p95):
+        return {"level": "warn", "message": "Attention", "bounds": bounds}
+    return {"level": "ok", "message": "OK", "bounds": bounds}
+
+
+def format_bounds(profile: dict) -> str:
+    """Formate min/max et p05/p95 pour affichage UI."""
+    min_val = profile.get("min")
+    max_val = profile.get("max")
+    p05, p95 = _fallback_percentiles(profile)
+
+    parts = []
+    if p05 is not None and p95 is not None:
+        parts.append(f"p05-p95: {p05:.3f}–{p95:.3f}")
+    if min_val is not None and max_val is not None and not np.isnan(min_val) and not np.isnan(max_val):
+        parts.append(f"min-max: {min_val:.3f}–{max_val:.3f}")
+    return " | ".join(parts)

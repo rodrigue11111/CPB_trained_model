@@ -93,3 +93,66 @@ def test_select_top_k_pass_only():
     top = select_top_k_pass(df, top_k=2)
     assert not top.empty
     assert top["pass"].all()
+
+
+def test_range_is_clamped_when_extrapolation_off():
+    df_ref = _sample_df()
+    constraints = {
+        "E/C": {"mode": "range", "min": -10.0, "max": 10.0},
+    }
+    df, stats = generate_recipes(
+        df_ref,
+        tailings="L01",
+        binders=["GUL"],
+        n_samples=5,
+        search_mode="uniform",
+        slump_min=None,
+        ucs_min=None,
+        slump_target=None,
+        ucs_target=None,
+        tol_slump=None,
+        tol_ucs=None,
+        top_k=5,
+        slump_model=DummyModel(),
+        ucs_model=DummyModel(),
+        constraints=constraints,
+        numeric_features=["E/C"],
+        categorical_features=["Binder", "Tailings"],
+        allow_extrapolation=False,
+    )
+
+    assert not df.empty
+    report = stats.get("validation", {})
+    assert report.get("clamped_ranges")
+
+
+def test_fixed_out_of_domain_raises_when_extrapolation_off():
+    df_ref = _sample_df()
+    constraints = {
+        "E/C": {"mode": "fixed", "value": 999.0},
+    }
+    try:
+        generate_recipes(
+            df_ref,
+            tailings="L01",
+            binders=["GUL"],
+            n_samples=5,
+            search_mode="uniform",
+            slump_min=None,
+            ucs_min=None,
+            slump_target=None,
+            ucs_target=None,
+            tol_slump=None,
+            tol_ucs=None,
+            top_k=5,
+            slump_model=DummyModel(),
+            ucs_model=DummyModel(),
+            constraints=constraints,
+            numeric_features=["E/C"],
+            categorical_features=["Binder", "Tailings"],
+            allow_extrapolation=False,
+        )
+        raised = False
+    except ValueError:
+        raised = True
+    assert raised

@@ -146,6 +146,7 @@ def generate_recipes(
     categorical_features: list[str] | None = None,
     numeric_stats: dict | None = None,
     sample_values: dict | None = None,
+    allow_extrapolation: bool = False,
 ) -> tuple[pd.DataFrame, dict]:
     """Genere des recettes candidates selon des contraintes ou cibles.
 
@@ -189,6 +190,11 @@ def generate_recipes(
     all_candidates = []
     total = 0
     passed = 0
+    validation_report: dict[str, Any] = {
+        "ood_features": [],
+        "clamped_ranges": [],
+        "allow_extrapolation": allow_extrapolation,
+    }
 
     for binder in binders:
         data: dict[str, np.ndarray] = {}
@@ -201,12 +207,61 @@ def generate_recipes(
             if constraint:
                 if constraint.get("mode") == "fixed":
                     value = float(constraint.get("value"))
+                    train_min, train_max = _get_min_max(
+                        df_ref, col, tailings, binder, numeric_stats
+                    )
+                    if not allow_extrapolation and (value < train_min or value > train_max):
+                        raise ValueError(
+                            f"Valeur hors domaine pour {col}: {value} "
+                            f"(min={train_min:.3f}, max={train_max:.3f})."
+                        )
+                    if value < train_min or value > train_max:
+                        validation_report["ood_features"].append(
+                            {
+                                "feature": col,
+                                "value": value,
+                                "min": train_min,
+                                "max": train_max,
+                            }
+                        )
                     data[col] = np.full(n_samples, value)
                 elif constraint.get("mode") == "range":
                     min_val = float(constraint.get("min"))
                     max_val = float(constraint.get("max"))
+                    train_min, train_max = _get_min_max(
+                        df_ref, col, tailings, binder, numeric_stats
+                    )
                     if min_val > max_val:
                         raise ValueError(f"Plage invalide pour {col}: {min_val} > {max_val}.")
+                    if not allow_extrapolation:
+                        clamped_min = max(min_val, train_min)
+                        clamped_max = min(max_val, train_max)
+                        if clamped_min != min_val or clamped_max != max_val:
+                            validation_report["clamped_ranges"].append(
+                                {
+                                    "feature": col,
+                                    "min_before": min_val,
+                                    "max_before": max_val,
+                                    "min_after": clamped_min,
+                                    "max_after": clamped_max,
+                                }
+                            )
+                        min_val, max_val = clamped_min, clamped_max
+                        if min_val > max_val:
+                            raise ValueError(
+                                f"Plage invalide apres ajustement pour {col}: {min_val} > {max_val}."
+                            )
+                    else:
+                        if min_val < train_min or max_val > train_max:
+                            validation_report["ood_features"].append(
+                                {
+                                    "feature": col,
+                                    "min": train_min,
+                                    "max": train_max,
+                                    "min_value": min_val,
+                                    "max_value": max_val,
+                                }
+                            )
                     if search_mode == "bootstrap":
                         values = _get_bootstrap_values(
                             df_ref,
@@ -331,7 +386,12 @@ def generate_recipes(
     df_all = df_all.sort_values(sort_cols, ascending=ascending)
 
     pass_rate = (passed / total * 100.0) if total else 0.0
-    stats = {"total": total, "passed": passed, "pass_rate_pct": pass_rate}
+    stats = {
+        "total": total,
+        "passed": passed,
+        "pass_rate_pct": pass_rate,
+        "validation": validation_report,
+    }
     return df_all, stats
 
 
