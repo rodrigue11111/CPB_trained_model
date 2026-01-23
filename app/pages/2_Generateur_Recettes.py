@@ -199,7 +199,6 @@ def main() -> None:
 
     constraints: dict[str, dict[str, Any]] = {}
     blocked_fields: list[str] = []
-    clamp_messages: list[str] = []
 
     if advanced:
         _ensure_state("constraint_features", [])
@@ -269,18 +268,7 @@ def main() -> None:
                             key=f"constraint_max_{col}",
                         )
 
-                    min_adj, max_adj = min_in, max_in
-                    min_profile = profile_stats.get("min")
-                    max_profile = profile_stats.get("max")
-                    if not allow_extrapolation and min_profile is not None and max_profile is not None:
-                        min_adj = max(min_in, float(min_profile))
-                        max_adj = min(max_in, float(max_profile))
-                        if min_adj != min_in or max_adj != max_in:
-                            clamp_messages.append(
-                                f"{col}: plage ajust\u00e9e a [{min_adj:.3f}, {max_adj:.3f}]"
-                            )
-
-                    constraints[col] = {"mode": "range", "min": min_adj, "max": max_adj}
+                    constraints[col] = {"mode": "range", "min": min_in, "max": max_in}
 
                     status_min = ood_level(min_in, profile_stats)
                     status_max = ood_level(max_in, profile_stats)
@@ -300,19 +288,18 @@ def main() -> None:
                         unsafe_allow_html=True,
                     )
                     if level == "out" and not allow_extrapolation:
-                        st.warning(
-                            "Plage hors domaine : ajust\u00e9e automatiquement au domaine d'entra\u00eenement."
+                        blocked_fields.append(col)
+                        st.error(
+                            "Plage hors distribution : activez l'extrapolation pour continuer."
                         )
-
-            if clamp_messages:
-                st.warning("Plages ajust\u00e9es : " + " | ".join(clamp_messages))
 
             if "muscovite_ratio" in model_numeric and "muscovite_ratio" not in constraints:
                 st.caption("muscovite_ratio est calcul\u00e9 automatiquement si possible.")
 
     if blocked_fields and not allow_extrapolation:
         st.warning(
-            "Certaines valeurs fixes sont hors domaine. Corrigez-les ou activez l'extrapolation."
+            "Certaines valeurs ou plages sont hors distribution. "
+            "Corrigez-les ou activez l'extrapolation."
         )
 
     run = st.button("G\u00e9n\u00e9rer", type="primary")
@@ -371,25 +358,11 @@ def main() -> None:
             unique_ood = sorted(
                 {item.get("feature") for item in ood_items if item.get("feature")}
             )
-            clamp_items = validation.get("clamped_ranges", [])
-            clamp_map = {}
-            for item in clamp_items:
-                feature = item.get("feature")
-                if feature and feature not in clamp_map:
-                    clamp_map[feature] = item
             st.write(f"Variables hors distribution: {len(unique_ood)}")
-            st.write(f"Plages ajust\u00e9es: {len(clamp_map)}")
             if unique_ood:
                 st.caption("Variables hors distribution :")
                 for feature in unique_ood:
                     st.write(f"- {feature}")
-            if clamp_map:
-                st.caption("Plages ajust\u00e9es :")
-                for item in clamp_map.values():
-                    st.write(
-                        f"- {item.get('feature')}: [{item.get('min_before'):.3f}, {item.get('max_before'):.3f}] -> "
-                        f"[{item.get('min_after'):.3f}, {item.get('max_after'):.3f}]"
-                    )
 
     show_non_pass = st.toggle("Montrer aussi les non-pass", value=False, key="gen_show_non_pass")
 

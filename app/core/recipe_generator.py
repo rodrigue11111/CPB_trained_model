@@ -192,7 +192,6 @@ def generate_recipes(
     passed = 0
     validation_report: dict[str, Any] = {
         "ood_features": [],
-        "clamped_ranges": [],
         "allow_extrapolation": allow_extrapolation,
     }
 
@@ -234,22 +233,11 @@ def generate_recipes(
                     if min_val > max_val:
                         raise ValueError(f"Plage invalide pour {col}: {min_val} > {max_val}.")
                     if not allow_extrapolation:
-                        clamped_min = max(min_val, train_min)
-                        clamped_max = min(max_val, train_max)
-                        if clamped_min != min_val or clamped_max != max_val:
-                            validation_report["clamped_ranges"].append(
-                                {
-                                    "feature": col,
-                                    "min_before": min_val,
-                                    "max_before": max_val,
-                                    "min_after": clamped_min,
-                                    "max_after": clamped_max,
-                                }
-                            )
-                        min_val, max_val = clamped_min, clamped_max
-                        if min_val > max_val:
+                        if min_val < train_min or max_val > train_max:
                             raise ValueError(
-                                f"Plage invalide apres ajustement pour {col}: {min_val} > {max_val}."
+                                f"Plage hors domaine pour {col}: "
+                                f"[{min_val:.3f}, {max_val:.3f}] "
+                                f"(min={train_min:.3f}, max={train_max:.3f})."
                             )
                     else:
                         if min_val < train_min or max_val > train_max:
