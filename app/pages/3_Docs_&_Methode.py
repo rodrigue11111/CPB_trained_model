@@ -75,6 +75,16 @@ Astuce : si aucun candidat ne passe, augmenter N ou rel\u00e2cher les seuils.
 
     st.markdown(
         '''
+### Mode avanc\u00e9 : contraintes par variable
+- **Preset LOT (mat\u00e9riau)** : granulom\u00e9trie et min\u00e9ralogie (P20/P80, Gs, phyllosilicates, muscovite_*).
+- **Preset RECETTE (proc\u00e9d\u00e9)** : param\u00e8tres li\u00e9s au dosage (E/C, Cw_f, Ad %).
+- L'id\u00e9e : si l'ing\u00e9nieur conna\u00eet son lot, il peut fixer ou borner ces variables pour proposer des recettes r\u00e9alistes.
+- Les autres variables restent tir\u00e9es automatiquement (uniform ou bootstrap).
+'''
+    )
+
+    st.markdown(
+        '''
 ### Mod\u00e8les finaux et m\u00e9triques (focus UCS)
 **UCS est la cible principale.** Les valeurs ci-dessous viennent des CV 5-fold du projet.
 

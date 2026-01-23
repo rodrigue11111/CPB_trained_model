@@ -105,6 +105,10 @@ Lancement local :
 streamlit run streamlit_app.py
 ```
 
+Mode Avance (Generateur de recettes) :
+- Activez le toggle "Mode avance" pour fixer ou borner certaines variables numeriques.
+- Deux presets existent : LOT (materiau) et RECETTE (procede).
+
 Modeles attendus (par defaut) :
 - outputs/final_models/FINAL_old_best/
 - outputs/final_models/FINAL_new_best/

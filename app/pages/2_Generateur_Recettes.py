@@ -1,20 +1,69 @@
 # -*- coding: utf-8 -*-
-"""Page Générateur de recettes Streamlit."""
+"""Page Generateur de recettes Streamlit."""
 
 from __future__ import annotations
 
 import time
+from typing import Any
+
+import numpy as np
 import pandas as pd
 import streamlit as st
 
 from app.core import model_registry
 from app.core.data_profiles import load_profile
-from app.core.recipe_generator import generate_recipes, to_excel_bytes
+from app.core.recipe_generator import generate_recipes, select_top_k_pass, to_excel_bytes
 from app.ui.components import load_css, section_header
+
+LOT_FEATURES = [
+    "P20 (\u00b5m)",
+    "P80 (\u00b5m)",
+    "Gs",
+    "phyllosilicates (%)",
+    "muscovite_total (%)",
+    "muscovite_added (%)",
+]
+
+RECIPE_FEATURES = [
+    "E/C",
+    "Cw_f",
+    "Ad %",
+]
+
+
+def _ensure_state(key: str, default: Any) -> None:
+    if key not in st.session_state:
+        st.session_state[key] = default
+
+
+def _default_range(profile, df_ref: pd.DataFrame, col: str) -> tuple[float, float, float]:
+    stats = profile.numeric_stats.get(col, {}) if profile else {}
+    min_val = stats.get("min")
+    max_val = stats.get("max")
+    mean_val = stats.get("mean")
+
+    if min_val is None or max_val is None or np.isnan(min_val) or np.isnan(max_val):
+        if col in df_ref.columns:
+            series = pd.to_numeric(df_ref[col], errors="coerce").dropna()
+            if not series.empty:
+                min_val = float(series.min())
+                max_val = float(series.max())
+                mean_val = float(series.mean())
+
+    min_val = float(min_val) if min_val is not None and not np.isnan(min_val) else 0.0
+    max_val = float(max_val) if max_val is not None and not np.isnan(max_val) else min_val
+    mean_val = float(mean_val) if mean_val is not None and not np.isnan(mean_val) else min_val
+    return min_val, max_val, mean_val
+
+
+def _apply_preset(options: list[str], preset: list[str], key: str) -> None:
+    selected = set(st.session_state.get(key, []))
+    selected.update([col for col in preset if col in options])
+    st.session_state[key] = sorted(selected)
 
 
 def main() -> None:
-    st.title("Générateur de recettes")
+    st.title("G\u00e9n\u00e9rateur de recettes")
     load_css("app/ui/styles.css")
 
     with st.sidebar:
@@ -29,21 +78,28 @@ def main() -> None:
         else:
             model_version = "FINAL_old_best"
 
-        st.caption("Modèle utilisé")
+        st.caption("Mod\u00e8le utilis\u00e9")
         st.code(model_version)
 
     bundle = model_registry.load_bundle(model_version)
     if not bundle:
         st.error(
-            "Modèles introuvables. Placez-les dans outputs/final_models ou "
-            "définissez MODEL_DOWNLOAD_URL dans secrets."
+            "Mod\u00e8les introuvables. Placez-les dans outputs/final_models ou "
+            "d\u00e9finissez MODEL_DOWNLOAD_URL dans secrets."
         )
         return
 
     tailings = "WW" if dataset_label == "WW" else "L01"
     slump_model, ucs_model = model_registry.resolve_tailings_model(bundle, tailings)
     if not slump_model or not ucs_model:
-        st.error("Modèles incomplets pour ce tailings.")
+        st.error("Mod\u00e8les incomplets pour ce r\u00e9sidu.")
+        return
+
+    features = model_registry.get_features_for_tailings(bundle, tailings)
+    numeric_features = features.get("numeric", [])
+    categorical_features = features.get("categorical", [])
+    if not numeric_features:
+        st.error("Features introuvables dans metadata.json.")
         return
 
     profile_key = "WW" if dataset_label == "WW" else "L01_OLD" if dataset_label == "L01 OLD" else "L01_NEW"
@@ -58,7 +114,7 @@ def main() -> None:
     st.subheader("Objectif et contraintes")
     mode = st.radio(
         "Type d'objectif",
-        ["Contraintes min", "Cible + tolérance"],
+        ["Contraintes min", "Cible + tol\u00e9rance"],
         horizontal=True,
     )
 
@@ -69,7 +125,7 @@ def main() -> None:
         top_k = st.number_input("Top K", value=50, step=10)
     with col3:
         if not profile.bootstrap_ready:
-            st.caption("Mode bootstrap indisponible (donnees brutes non disponibles).")
+            st.caption("Mode bootstrap indisponible (donn\u00e9es brutes non disponibles).")
             search_options = ["uniform"]
             default_index = 0
         else:
@@ -101,62 +157,140 @@ def main() -> None:
         with c4:
             tol_ucs = st.number_input("Tol UCS (+/-)", value=100.0)
 
-    run = st.button("Générer", type="primary")
+    advanced = st.toggle(
+        "Mode avanc\u00e9",
+        value=False,
+        help="Contraindre certaines variables num\u00e9riques du mod\u00e8le.",
+    )
+
+    constraints: dict[str, dict[str, Any]] = {}
+    if advanced:
+        _ensure_state("constraint_features", [])
+        with st.expander("Contraintes sur les variables num\u00e9riques", expanded=False):
+            st.caption(
+                "Choisissez les variables \u00e0 fixer ou borner. Les autres resteront "
+                "tir\u00e9es automatiquement selon le mode de recherche."
+            )
+            p1, p2 = st.columns(2)
+            with p1:
+                if st.button("Preset LOT (mat\u00e9riau)"):
+                    _apply_preset(numeric_features, LOT_FEATURES, "constraint_features")
+            with p2:
+                if st.button("Preset RECETTE (proc\u00e9d\u00e9)"):
+                    _apply_preset(numeric_features, RECIPE_FEATURES, "constraint_features")
+
+            selected_features = st.multiselect(
+                "Variables \u00e0 contraindre",
+                options=numeric_features,
+                key="constraint_features",
+            )
+
+            for col in selected_features:
+                min_val, max_val, mean_val = _default_range(profile, profile.df, col)
+                st.markdown(f"**{col}**")
+                mode_choice = st.radio(
+                    f"Mode {col}",
+                    ["Fixe", "Plage"],
+                    horizontal=True,
+                    key=f"constraint_mode_{col}",
+                )
+                if mode_choice == "Fixe":
+                    value = st.number_input(
+                        f"Valeur {col}",
+                        value=float(mean_val),
+                        key=f"constraint_value_{col}",
+                    )
+                    constraints[col] = {"mode": "fixed", "value": value}
+                else:
+                    cmin, cmax = st.columns(2)
+                    with cmin:
+                        min_in = st.number_input(
+                            f"Min {col}",
+                            value=float(min_val),
+                            key=f"constraint_min_{col}",
+                        )
+                    with cmax:
+                        max_in = st.number_input(
+                            f"Max {col}",
+                            value=float(max_val),
+                            key=f"constraint_max_{col}",
+                        )
+                    constraints[col] = {"mode": "range", "min": min_in, "max": max_in}
+
+            if "muscovite_ratio" in numeric_features and "muscovite_ratio" not in constraints:
+                st.caption("muscovite_ratio est calcul\u00e9 automatiquement si possible.")
+
+    run = st.button("G\u00e9n\u00e9rer", type="primary")
 
     if not run:
         return
 
     start = time.time()
     progress = st.progress(0)
-    with st.spinner("Génération des recettes..."):
+    with st.spinner("G\u00e9n\u00e9ration des recettes..."):
         progress.progress(10)
-        ranked_df, stats = generate_recipes(
-            profile.df,
-            tailings=tailings,
-            binders=selected_binders,
-            n_samples=int(n_samples),
-            search_mode=search_mode,
-            slump_min=slump_min,
-            ucs_min=ucs_min,
-            slump_target=slump_target,
-            ucs_target=ucs_target,
-            tol_slump=tol_slump,
-            tol_ucs=tol_ucs,
-            top_k=int(top_k),
-            slump_model=slump_model,
-            ucs_model=ucs_model,
-        )
-        progress.progress(100)
+        try:
+            ranked_df, stats = generate_recipes(
+                profile.df,
+                tailings=tailings,
+                binders=selected_binders,
+                n_samples=int(n_samples),
+                search_mode=search_mode,
+                slump_min=slump_min,
+                ucs_min=ucs_min,
+                slump_target=slump_target,
+                ucs_target=ucs_target,
+                tol_slump=tol_slump,
+                tol_ucs=tol_ucs,
+                top_k=int(top_k),
+                slump_model=slump_model,
+                ucs_model=ucs_model,
+                constraints=constraints,
+                numeric_features=numeric_features,
+                categorical_features=categorical_features,
+                numeric_stats=profile.numeric_stats,
+                sample_values=profile.sample_values,
+            )
+        except Exception as exc:
+            st.error(f"Erreur pendant la g\u00e9n\u00e9ration: {exc}")
+            return
+        finally:
+            progress.progress(100)
 
     elapsed = time.time() - start
     pass_rate = stats.get("pass_rate_pct", 0.0)
 
-    section_header("Résultats")
+    section_header("R\u00e9sultats")
     st.write(f"Pass rate: {pass_rate:.2f} %")
-    st.write(f"Temps d'exécution: {elapsed:.2f} s")
+    st.write(f"Temps d'ex\u00e9cution: {elapsed:.2f} s")
 
-    if not ranked_df.empty and "pass" in ranked_df.columns:
-        df_pass = ranked_df[ranked_df["pass"] == True]
-    else:
-        df_pass = ranked_df
-    df_top = df_pass.head(int(top_k)) if not df_pass.empty else pd.DataFrame()
+    show_non_pass = st.toggle("Montrer aussi les non-pass", value=False)
 
+    df_top = select_top_k_pass(ranked_df, int(top_k))
     if df_top.empty:
         st.warning(
-            "Aucune recette ne satisfait les contraintes. "
-            "Augmentez N candidats ou relâchez les seuils."
+            "0 recette valide avec ces contraintes, "
+            "\u00e9largis les plages ou baisse les seuils."
         )
-        with st.expander("Voir les meilleurs candidats même si non-pass"):
-            st.dataframe(ranked_df.head(int(top_k)))
-    else:
-        st.dataframe(df_top)
-        excel_bytes = to_excel_bytes(df_top)
-        st.download_button(
-            "Télécharger Excel",
-            data=excel_bytes,
-            file_name="Top_Recipes.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
+        if show_non_pass and not ranked_df.empty:
+            with st.expander("Voir les meilleurs candidats m\u00eame si non-pass"):
+                st.dataframe(ranked_df.head(int(top_k)))
+        return
+
+    st.dataframe(df_top)
+    excel_bytes = to_excel_bytes(df_top)
+    st.download_button(
+        "T\u00e9l\u00e9charger Excel",
+        data=excel_bytes,
+        file_name="Top_Recipes.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+    if show_non_pass:
+        df_non_pass = ranked_df[ranked_df.get("pass") == False]
+        if not df_non_pass.empty:
+            with st.expander("Voir les meilleurs non-pass"):
+                st.dataframe(df_non_pass.head(int(top_k)))
 
 
 if __name__ == "__main__":
