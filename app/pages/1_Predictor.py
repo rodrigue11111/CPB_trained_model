@@ -37,12 +37,12 @@ def _unit_help(col: str) -> str:
 def _classify_column(col: str) -> str:
     name = col.lower()
     if "muscovite" in name:
-        return "Param\u00e8tres additionnels"
+        return "Parametres additionnels"
     if "p" in name and any(ch.isdigit() for ch in name):
-        return "Granulom\u00e9trie"
+        return "Granulometrie"
     if "d" in name and any(ch.isdigit() for ch in name):
-        return "Granulom\u00e9trie"
-    return "Ingr\u00e9dients / Dosages"
+        return "Granulometrie"
+    return "Ingredients / Dosages"
 
 
 def _badge_for_level(level: str) -> str:
@@ -63,13 +63,13 @@ def _safe_selectbox(label: str, options: list[str], key: str, default: str | Non
 
 
 def main() -> None:
-    st.title("Pr\u00e9dicteur CPB")
+    st.title("Predicteur CPB")
     load_css("app/ui/styles.css")
 
     with st.sidebar:
         st.header("Configuration")
         dataset_label = _safe_selectbox(
-            "Famille de r\u00e9sidus",
+            "Famille de residus",
             ["WW", "L01 OLD", "L01 NEW"],
             key="pred_dataset",
             default="L01 NEW",
@@ -79,13 +79,13 @@ def main() -> None:
         else:
             model_version = "FINAL_old_best"
 
-        st.caption("Mod\u00e8le utilis\u00e9")
+        st.caption("Modele utilise")
         st.code(model_version)
 
     bundle = model_registry.load_bundle(model_version)
     if not bundle:
         st.error(
-            "Mod\u00e8les introuvables. Placez-les dans outputs/final_models ou "
+            "Modeles introuvables. Placez-les dans outputs/final_models ou "
             "definissez MODEL_DOWNLOAD_URL dans secrets."
         )
         return
@@ -93,7 +93,7 @@ def main() -> None:
     tailings = "WW" if dataset_label == "WW" else "L01"
     slump_model, ucs_model = model_registry.resolve_tailings_model(bundle, tailings)
     if not slump_model or not ucs_model:
-        st.error("Mod\u00e8les incomplets pour ce r\u00e9sidu.")
+        st.error("Modeles incomplets pour ce residu.")
         return
 
     features = model_registry.get_features_for_tailings(bundle, tailings)
@@ -115,6 +115,8 @@ def main() -> None:
     st.subheader("Saisir une recette")
 
     inputs: dict = {}
+    num_cols_input: list[str] = []
+
     with st.form("predictor_form"):
         cat_cols = features["categorical"]
         num_cols = features["numeric"]
@@ -122,7 +124,7 @@ def main() -> None:
         num_cols_input = [col for col in num_cols if col != "muscovite_ratio"]
 
         if cat_cols:
-            section_header("Param\u00e8tres cat\u00e9goriels")
+            section_header("Parametres categoriels")
             for col in cat_cols:
                 if col == "Tailings":
                     inputs[col] = _safe_selectbox(col, [tailings], key=f"pred_{col}", default=tailings)
@@ -136,9 +138,9 @@ def main() -> None:
                 inputs[col] = _safe_selectbox(col, options, key=f"pred_{col}")
 
         sections = {
-            "Ingr\u00e9dients / Dosages": [],
-            "Granulom\u00e9trie": [],
-            "Param\u00e8tres additionnels": [],
+            "Ingredients / Dosages": [],
+            "Granulometrie": [],
+            "Parametres additionnels": [],
         }
         for col in num_cols_input:
             sections[_classify_column(col)].append(col)
@@ -160,23 +162,8 @@ def main() -> None:
                 )
                 inputs[col] = value
 
-                if profile:
-                    stats = get_feature_profile(profile, col)
-                    bounds_text = format_bounds(stats)
-                    status = ood_level(value, stats)
-                    if status["level"] != "ok":
-                        st.markdown(
-                            f"{_badge_for_level(status['level'])} "
-                            + (f"Training: {bounds_text}" if bounds_text else "Profil insuffisant"),
-                            unsafe_allow_html=True,
-                        )
-                        if status["level"] == "out":
-                            st.caption(
-                                "Valeur hors distribution : la prediction peut etre moins fiable."
-                            )
-
         if has_ratio:
-            section_header("Param\u00e8tres additionnels")
+            section_header("Parametres additionnels")
             st.text_input(
                 "muscovite_ratio (calcule automatiquement)",
                 value="sera calcule apres prediction",
@@ -184,7 +171,33 @@ def main() -> None:
                 key="muscovite_ratio_placeholder",
             )
 
-        submitted = st.form_submit_button("Pr\u00e9dire")
+        submitted = st.form_submit_button("Predire")
+
+    if profile and num_cols_input:
+        warnings_to_show = []
+        for col in num_cols_input:
+            key = f"pred_{col}"
+            if key not in st.session_state:
+                continue
+            value = st.session_state.get(key)
+            stats = get_feature_profile(profile, col)
+            status = ood_level(value, stats)
+            if status["level"] != "ok":
+                bounds_text = format_bounds(stats)
+                warnings_to_show.append(
+                    (col, status["level"], bounds_text)
+                )
+
+        if warnings_to_show:
+            section_header("Avertissement distribution")
+            for col, level, bounds_text in warnings_to_show:
+                st.markdown(
+                    f"{_badge_for_level(level)} {col} "
+                    + (f"| Training: {bounds_text}" if bounds_text else "| Profil insuffisant"),
+                    unsafe_allow_html=True,
+                )
+                if level == "out":
+                    st.caption("Valeur hors distribution : la prediction peut etre moins fiable.")
 
     if submitted:
         required_cols = features["categorical"] + features["numeric"]
@@ -224,20 +237,20 @@ def main() -> None:
     col1, col2 = st.columns(2)
     with col1:
         status = "OK" if ucs_pred >= 900 else "Alerte"
-        metric_card("UCS pr\u00e9dit", f"{ucs_pred:.1f}", "kPa", status)
+        metric_card("UCS predit", f"{ucs_pred:.1f}", "kPa", status)
         if ucs_rmse is not None:
             st.caption(
-                f"UCS pr\u00e9dite = {ucs_pred:.1f} +/- {ucs_rmse:.0f} kPa (RMSE approx.)"
+                f"UCS predite = {ucs_pred:.1f} +/- {ucs_rmse:.0f} kPa (RMSE approx.)"
             )
     with col2:
         status = "OK" if slump_pred >= 70 else "Alerte"
-        metric_card("Slump pr\u00e9dit", f"{slump_pred:.1f}", "mm", status)
+        metric_card("Slump predit", f"{slump_pred:.1f}", "mm", status)
         if slump_rmse is not None:
             st.caption(
-                f"Slump pr\u00e9dit = {slump_pred:.1f} +/- {slump_rmse:.0f} mm (RMSE approx.)"
+                f"Slump predit = {slump_pred:.1f} +/- {slump_rmse:.0f} mm (RMSE approx.)"
             )
 
-    st.subheader("R\u00e9capitulatif des inputs")
+    st.subheader("Recapitulatif des inputs")
     st.dataframe(pd.DataFrame([used_inputs]))
 
     if profile:
@@ -248,14 +261,14 @@ def main() -> None:
         ratio_value = used_inputs.get("muscovite_ratio")
         display_ratio = "N/A" if pd.isna(ratio_value) else f"{ratio_value:.4f}"
         st.text_input(
-            "muscovite_ratio (calcul\u00e9 automatiquement)",
+            "muscovite_ratio (calcule automatiquement)",
             value=display_ratio,
             disabled=True,
             key="muscovite_ratio_value",
         )
-        st.info(f"muscovite_ratio calcul\u00e9 automatiquement: {display_ratio}")
+        st.info(f"muscovite_ratio calcule automatiquement: {display_ratio}")
 
-    st.subheader("Comparer \u00e0 un test labo (optionnel)")
+    st.subheader("Comparer a un test labo (optionnel)")
     col_a, col_b = st.columns(2)
     with col_a:
         ucs_labo = st.number_input("UCS labo (kPa)", value=float(st.session_state.get("pred_ucs_labo", 0.0)), key="pred_ucs_labo")
