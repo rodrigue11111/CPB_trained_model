@@ -115,6 +115,15 @@ Modeles attendus (par defaut) :
 
 Si les modeles ne sont pas trouves, l'app affichera un message clair.
 
+## Visualiser les relations UCS
+
+1) Generer les sorties d'interpretabilite (une seule fois) :
+```bash
+python scripts/explain_ucs_relationships.py --models-dir outputs/final_models/FINAL_new_best --dataset-xlsx data/L01-dataset.xlsx --out-dir outputs/interpretability/FINAL_new_best
+```
+
+2) Ouvrir la page "Relations (UCS)" dans l'app Streamlit et choisir le dossier.
+
 ## Deploiement Streamlit Cloud (pas a pas)
 
 1) Pousser le repo sur GitHub (inclure streamlit_app.py et le dossier app/).

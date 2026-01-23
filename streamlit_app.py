@@ -21,6 +21,7 @@ PAGES = {
     "G\u00e9n\u00e9rateur de recettes": Path("app/pages/2_Generateur_Recettes.py"),
     "Docs & M\u00e9thode": Path("app/pages/3_Docs_&_Methode.py"),
     "Debug mod\u00e8les": Path("app/pages/4_Debug_Modeles.py"),
+    "Relations (UCS)": Path("app/pages/5_Relations_UCS.py"),
 }
 
 
