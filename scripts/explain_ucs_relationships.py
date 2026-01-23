@@ -196,6 +196,20 @@ def _safe_predict(model, X: pd.DataFrame) -> np.ndarray:
     return model.predict(X)
 
 
+def _safe_token(text: str) -> str:
+    """Nettoie un nom de feature pour creer un nom de fichier ASCII stable."""
+    token = (
+        text.replace(" ", "_")
+        .replace("%", "pct")
+        .replace("(", "")
+        .replace(")", "")
+        .replace("/", "_")
+        .replace("\\", "_")
+    )
+    token = token.replace("\u00b5", "u").replace("\u03bc", "u")
+    return token
+
+
 def _save_csv(df: pd.DataFrame, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(path, index=False)
@@ -377,7 +391,7 @@ def main() -> None:
                 preds.append(np.mean(_safe_predict(model, X_tmp)))
             preds = np.asarray(preds)
             pdp_df = pd.DataFrame({"grid_value": grid, "pred_mean": preds})
-            file_tag = feature.replace(" ", "_").replace("%", "pct").replace("(", "").replace(")", "")
+            file_tag = _safe_token(feature)
             _save_csv(pdp_df, out_dir / f"pdp_{file_tag}.csv")
             _save_line_plot(grid, preds, f"PDP {feature}", out_dir / f"pdp_{file_tag}.png")
 
@@ -433,7 +447,7 @@ def main() -> None:
                     for ix, xv in enumerate(grid_x)
                 ]
             )
-            tag = f"{feat_x}_x_{feat_y}".replace(" ", "_").replace("%", "pct").replace("(", "").replace(")", "")
+            tag = f"{_safe_token(feat_x)}_x_{_safe_token(feat_y)}"
             _save_csv(grid_df, out_dir / f"pdp2d_{tag}.csv")
             _save_heatmap(grid_x, grid_y, z, f"Interaction {feat_x} vs {feat_y}", out_dir / f"pdp2d_{tag}.png")
             extrap = note_x == "min-max" or note_y == "min-max"

@@ -89,6 +89,7 @@ def detect_files(run_dir: str | Path) -> dict[str, Any]:
 def _humanize_token(token: str) -> str:
     label = token.replace("_", " ")
     label = label.replace("pct", "%")
+    label = label.replace(" um", " \u00b5m")
     return label
 
 
