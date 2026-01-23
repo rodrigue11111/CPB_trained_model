@@ -367,17 +367,25 @@ def main() -> None:
     validation = stats.get("validation", {})
     if validation:
         with st.expander("Qualit\u00e9 des entr\u00e9es", expanded=False):
-            ood_count = len(validation.get("ood_features", []))
-            clamp_count = len(validation.get("clamped_ranges", []))
-            st.write(f"Variables hors distribution: {ood_count}")
-            st.write(f"Plages ajust\u00e9es: {clamp_count}")
-            if ood_count:
+            ood_items = validation.get("ood_features", [])
+            unique_ood = sorted(
+                {item.get("feature") for item in ood_items if item.get("feature")}
+            )
+            clamp_items = validation.get("clamped_ranges", [])
+            clamp_map = {}
+            for item in clamp_items:
+                feature = item.get("feature")
+                if feature and feature not in clamp_map:
+                    clamp_map[feature] = item
+            st.write(f"Variables hors distribution: {len(unique_ood)}")
+            st.write(f"Plages ajust\u00e9es: {len(clamp_map)}")
+            if unique_ood:
                 st.caption("Variables hors distribution :")
-                for item in validation["ood_features"]:
-                    st.write(f"- {item.get('feature')}")
-            if clamp_count:
+                for feature in unique_ood:
+                    st.write(f"- {feature}")
+            if clamp_map:
                 st.caption("Plages ajust\u00e9es :")
-                for item in validation["clamped_ranges"]:
+                for item in clamp_map.values():
                     st.write(
                         f"- {item.get('feature')}: [{item.get('min_before'):.3f}, {item.get('max_before'):.3f}] -> "
                         f"[{item.get('min_after'):.3f}, {item.get('max_after'):.3f}]"
