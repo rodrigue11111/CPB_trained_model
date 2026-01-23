@@ -22,6 +22,7 @@ PAGES = {
     "Docs & M\u00e9thode": Path("app/pages/3_Docs_&_Methode.py"),
     "Debug mod\u00e8les": Path("app/pages/4_Debug_Modeles.py"),
     "Relations (UCS)": Path("app/pages/5_Relations_UCS.py"),
+    "Formules": Path("app/pages/6_Formules.py"),
 }
 
 

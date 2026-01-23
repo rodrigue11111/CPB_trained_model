@@ -14,12 +14,13 @@ import numpy as np
 import pandas as pd
 
 from sklearn.compose import ColumnTransformer
-from sklearn.linear_model import ElasticNet
+from sklearn.linear_model import ElasticNet, LinearRegression, RidgeCV
 from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.model_selection import GridSearchCV, KFold, train_test_split
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, SplineTransformer
+from sklearn.preprocessing import OneHotEncoder, SplineTransformer, StandardScaler
 from sklearn.tree import DecisionTreeRegressor, export_text
+from sklearn.impute import SimpleImputer
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -67,7 +68,7 @@ def _ensure_ratio(df: pd.DataFrame) -> pd.DataFrame:
         total = pd.to_numeric(df["muscovite_total (%)"], errors="coerce")
         added = pd.to_numeric(df["muscovite_added (%)"], errors="coerce")
         df = df.copy()
-        df["muscovite_ratio"] = np.where(total > 0, added / total, np.nan)
+        df["muscovite_ratio"] = np.where(total > 0, added / total, 0.0)
     return df
 
 
@@ -162,6 +163,129 @@ def _extract_coefficients(
     return df
 
 
+def _extract_classic_coefficients(
+    model: Pipeline,
+    numeric_cols: list[str],
+    categorical_cols: list[str],
+) -> tuple[pd.DataFrame, float]:
+    """Retourne les coefficients en unites originales + intercept ajuste."""
+    preprocessor = model.named_steps["preprocess"]
+    estimator = model.named_steps["model"]
+    names = []
+    if hasattr(preprocessor, "get_feature_names_out"):
+        names = list(preprocessor.get_feature_names_out())
+    coef_std = estimator.coef_.ravel()
+    coef_map = dict(zip(names, coef_std))
+
+    intercept = float(estimator.intercept_)
+    intercept_adjust = 0.0
+
+    coef_rows = []
+    if "num" in preprocessor.named_transformers_:
+        num_pipe = preprocessor.named_transformers_["num"]
+        if isinstance(num_pipe, Pipeline):
+            scaler = num_pipe.named_steps.get("scaler")
+            if scaler is not None:
+                means = scaler.mean_
+                scales = scaler.scale_
+                for idx, col in enumerate(numeric_cols):
+                    key = f"num__{col}"
+                    coef_val = float(coef_map.get(key, 0.0))
+                    scale = float(scales[idx]) if scales is not None else 1.0
+                    mean = float(means[idx]) if means is not None else 0.0
+                    if scale == 0:
+                        coef_orig = 0.0
+                    else:
+                        coef_orig = coef_val / scale
+                        intercept_adjust += coef_val * mean / scale
+                    coef_rows.append(
+                        {
+                            "term_name": col,
+                            "coefficient": float(coef_orig),
+                            "feature_source": col,
+                            "term_type": "numeric",
+                        }
+                    )
+
+    # Coefficients categiels (pas de scaling)
+    for name in names:
+        if not name.startswith("cat__"):
+            continue
+        coef_val = float(coef_map.get(name, 0.0))
+        clean = name.replace("cat__", "")
+        coef_rows.append(
+            {
+                "term_name": clean,
+                "coefficient": coef_val,
+                "feature_source": "Binder",
+                "term_type": "categorical",
+            }
+        )
+
+    intercept_original = intercept - intercept_adjust
+    coef_rows.append(
+        {
+            "term_name": "intercept",
+            "coefficient": float(intercept_original),
+            "feature_source": "intercept",
+            "term_type": "intercept",
+        }
+    )
+
+    df = pd.DataFrame(coef_rows)
+    df["abs_coef"] = df["coefficient"].abs()
+    df = df.sort_values("abs_coef", ascending=False).drop(columns=["abs_coef"])
+    return df, float(intercept_original)
+
+
+def _format_equation_lines(
+    title: str,
+    intercept: float,
+    coef_df: pd.DataFrame,
+    metrics: dict,
+    features: list[str],
+    note: str,
+) -> list[str]:
+    lines = [
+        f"# {title}",
+        "",
+        "Forme g\u00e9n\u00e9rale :",
+        "UCS = intercept + somme(coef * variable)",
+        "",
+        f"Intercept = {intercept:.4f}",
+        "",
+        "Termes :",
+    ]
+    for _, row in coef_df.iterrows():
+        if row["term_name"] == "intercept":
+            continue
+        term = row["term_name"]
+        coef = row["coefficient"]
+        if term.startswith("Binder_"):
+            label = term.replace("Binder_", "Binder=")
+        else:
+            label = term
+        lines.append(f"- {coef:+.4f} * {label}")
+    lines.append("")
+    lines.append("Interpr\u00e9tation rapide :")
+    lines.append("- Un coefficient positif augmente UCS quand la variable augmente.")
+    lines.append("- Un coefficient n\u00e9gatif diminue UCS quand la variable augmente.")
+    lines.append("")
+    lines.append(
+        f"Performance test : R^2 = {metrics.get('r2'):.3f}, RMSE = {metrics.get('rmse'):.2f} kPa"
+    )
+    lines.append("")
+    lines.append("Features retenues :")
+    for feat in features:
+        lines.append(f"- {feat}")
+    lines.append("")
+    lines.append(
+        "Avertissement : \u00e9quation valable dans la plage des donn\u00e9es L01 NEW."
+    )
+    lines.append(note)
+    return lines
+
+
 def _write_rules(path: Path, title: str, rules: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     text = [
@@ -221,6 +345,7 @@ def main() -> None:
     parser.add_argument("--splines-degree", type=int, default=3)
     parser.add_argument("--alpha-grid", default="1e-4,1e-3,1e-2,1e-1,1")
     parser.add_argument("--l1-ratio-grid", default="0.05,0.1,0.3,0.5,0.7,0.9")
+    parser.add_argument("--max-nonzero", type=int, default=12)
     args = parser.parse_args()
 
     np.random.seed(args.seed)
@@ -246,6 +371,186 @@ def main() -> None:
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=args.test_size, random_state=args.seed
     )
+
+    # ------------------------------------------------------
+    # CLASSIC LINEAR (sans splines) - equation interpretable
+    # ------------------------------------------------------
+    numeric_pipe = Pipeline(
+        steps=[
+            ("imputer", SimpleImputer(strategy="median")),
+            ("scaler", StandardScaler()),
+        ]
+    )
+    cat_pipe = Pipeline(
+        steps=[
+            ("imputer", SimpleImputer(strategy="most_frequent")),
+            ("onehot", OneHotEncoder(handle_unknown="ignore")),
+        ]
+    )
+    transformers = []
+    if num_cols:
+        transformers.append(("num", numeric_pipe, num_cols))
+    if cat_cols:
+        transformers.append(("cat", cat_pipe, cat_cols))
+    classic_preprocess = ColumnTransformer(
+        transformers=transformers,
+        remainder="drop",
+    )
+
+    classic_models = {}
+    classic_metrics = {}
+    classic_preds = {}
+
+    # A) LinearRegression baseline
+    lr_model = Pipeline(
+        steps=[
+            ("preprocess", classic_preprocess),
+            ("model", LinearRegression()),
+        ]
+    )
+    lr_model.fit(X_train, y_train)
+    pred_lr = lr_model.predict(X_test)
+    classic_models["linear"] = lr_model
+    classic_preds["linear"] = pred_lr
+    classic_metrics["linear"] = {
+        "r2": float(r2_score(y_test, pred_lr)),
+        "rmse": float(math.sqrt(mean_squared_error(y_test, pred_lr))),
+    }
+
+    # B) RidgeCV (stabilite)
+    ridge_alphas = np.logspace(-3, 3, 13)
+    ridge_model = Pipeline(
+        steps=[
+            ("preprocess", classic_preprocess),
+            ("model", RidgeCV(alphas=ridge_alphas)),
+        ]
+    )
+    ridge_model.fit(X_train, y_train)
+    pred_ridge = ridge_model.predict(X_test)
+    classic_models["ridge"] = ridge_model
+    classic_preds["ridge"] = pred_ridge
+    classic_metrics["ridge"] = {
+        "r2": float(r2_score(y_test, pred_ridge)),
+        "rmse": float(math.sqrt(mean_squared_error(y_test, pred_ridge))),
+        "alpha": float(ridge_model.named_steps["model"].alpha_),
+    }
+
+    # C) ElasticNet (formule plus courte)
+    enet_model = Pipeline(
+        steps=[
+            ("preprocess", classic_preprocess),
+            ("model", ElasticNet(max_iter=10000, random_state=args.seed)),
+        ]
+    )
+    alpha_grid = _parse_floats(args.alpha_grid)
+    l1_grid = _parse_floats(args.l1_ratio_grid)
+    n_splits = min(5, len(X_train))
+    if n_splits < 2:
+        n_splits = 2
+    cv = KFold(n_splits=n_splits, shuffle=True, random_state=args.seed)
+    enet_grid = GridSearchCV(
+        enet_model,
+        param_grid={
+            "model__alpha": alpha_grid,
+            "model__l1_ratio": l1_grid,
+        },
+        scoring="neg_root_mean_squared_error",
+        cv=cv,
+    )
+    enet_grid.fit(X_train, y_train)
+    enet_best = enet_grid.best_estimator_
+    pred_enet = enet_best.predict(X_test)
+    classic_models["elasticnet"] = enet_best
+    classic_preds["elasticnet"] = pred_enet
+    classic_metrics["elasticnet"] = {
+        "r2": float(r2_score(y_test, pred_enet)),
+        "rmse": float(math.sqrt(mean_squared_error(y_test, pred_enet))),
+        "best_params": enet_grid.best_params_,
+    }
+
+    # Choix du meilleur modele (RMSE minimal)
+    best_key = min(classic_metrics.keys(), key=lambda k: classic_metrics[k]["rmse"])
+    best_classic = classic_models[best_key]
+
+    # Export coefficients en unites originales
+    coef_df, intercept_original = _extract_classic_coefficients(
+        best_classic, num_cols, cat_cols
+    )
+    coef_df.to_csv(out_dir / "classic_linear_coefficients.csv", index=False)
+
+    best_metrics = classic_metrics[best_key]
+    classic_summary = {
+        "best_model": best_key,
+        "metrics": classic_metrics,
+    }
+
+    # Equation lisible (unites originales)
+    equation_lines = _format_equation_lines(
+        "Equation classique (L01 NEW)",
+        intercept_original,
+        coef_df,
+        best_metrics,
+        num_cols + cat_cols,
+        "",
+    )
+    (out_dir / "classic_linear_equation.md").write_text(
+        "\n".join(equation_lines), encoding="utf-8"
+    )
+
+    import joblib
+
+    joblib.dump(best_classic, out_dir / "classic_linear.joblib")
+    # On ecrit les metriques plus tard (apres la fidelite si disponible).
+
+    # Option equation courte (max nonzero)
+    max_nonzero = getattr(args, "max_nonzero", 12)
+    if best_key == "elasticnet":
+        enet_pipe = classic_models["elasticnet"]
+        coef_df_enet, intercept_enet = _extract_classic_coefficients(
+            enet_pipe, num_cols, cat_cols
+        )
+        nonzero = (coef_df_enet["term_type"] != "intercept") & (coef_df_enet["coefficient"].abs() > 1e-8)
+        if nonzero.sum() > max_nonzero:
+            short_model = None
+            for alpha in sorted(alpha_grid, reverse=True):
+                for l1_ratio in sorted(l1_grid, reverse=True):
+                    trial = Pipeline(
+                        steps=[
+                            ("preprocess", classic_preprocess),
+                            ("model", ElasticNet(max_iter=10000, random_state=args.seed, alpha=alpha, l1_ratio=l1_ratio)),
+                        ]
+                    )
+                    trial.fit(X_train, y_train)
+                    coef_df_trial, intercept_trial = _extract_classic_coefficients(
+                        trial, num_cols, cat_cols
+                    )
+                    nz = (coef_df_trial["term_type"] != "intercept") & (coef_df_trial["coefficient"].abs() > 1e-8)
+                    if nz.sum() <= max_nonzero:
+                        short_model = trial
+                        coef_df_enet = coef_df_trial
+                        intercept_enet = intercept_trial
+                        break
+                if short_model is not None:
+                    break
+            if short_model is not None:
+                pred_short = short_model.predict(X_test)
+                short_metrics = {
+                    "r2": float(r2_score(y_test, pred_short)),
+                    "rmse": float(math.sqrt(mean_squared_error(y_test, pred_short))),
+                    "alpha": float(short_model.named_steps["model"].alpha),
+                    "l1_ratio": float(short_model.named_steps["model"].l1_ratio),
+                }
+                short_lines = _format_equation_lines(
+                    "Equation courte (ElasticNet)",
+                    intercept_enet,
+                    coef_df_enet,
+                    short_metrics,
+                    num_cols + cat_cols,
+                    f"Nombre de termes (hors intercept) <= {max_nonzero}",
+                )
+                (out_dir / "classic_linear_equation_short.md").write_text(
+                    "\n".join(short_lines), encoding="utf-8"
+                )
 
     # A) Modele global spline + ElasticNet
     numeric_transformer = SplineTransformer(
@@ -430,9 +735,19 @@ def main() -> None:
                     "rmse": float(math.sqrt(mean_squared_error(best_pred, pred_rules))),
                 },
             }
+            for key, preds in classic_preds.items():
+                fidelity[f"classic_{key}_vs_best"] = {
+                    "r2": float(r2_score(best_pred, preds)),
+                    "rmse": float(math.sqrt(mean_squared_error(best_pred, preds))),
+                }
             (out_dir / "fidelity_metrics.json").write_text(
                 json.dumps(fidelity, indent=2), encoding="utf-8"
             )
+
+    classic_summary["fidelity"] = fidelity
+    (out_dir / "classic_linear_metrics.json").write_text(
+        json.dumps(classic_summary, indent=2), encoding="utf-8"
+    )
 
     comparison_rows.to_csv(out_dir / "comparaison_table.csv", index=False)
 
