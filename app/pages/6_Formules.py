@@ -20,6 +20,39 @@ DEFAULT_COMMAND = (
     "--out-dir outputs/formulas/L01_new --seed 42"
 )
 
+# Coefficients affichés pour L01 NEW (arrondis à 3 décimales à l'affichage).
+# IMPORTANT: ces valeurs sont uniquement pour l'UI (le calculateur reste inchangé).
+DISPLAY_INTERCEPT = -8096.2626
+DISPLAY_BONUS_20G80S = 230.7892
+DISPLAY_BONUS_GUL = -230.7892
+DISPLAY_TERMS = [
+    {"label": "Gs", "latex": "Gs", "excel": "Gs", "coef": 419.0878},
+    {"label": "(E/C)", "latex": "(E/C)", "excel": "EC", "coef": -115.9450},
+    {"label": "P80", "latex": "P80", "excel": "P80", "coef": 88.4569},
+    {"label": "Ad", "latex": "Ad", "excel": "Ad", "coef": -41.4015},
+    {
+        "label": "muscovite_ratio",
+        "latex": "muscovite\\_ratio",
+        "excel": "muscovite_ratio",
+        "coef": 36.4561,
+    },
+    {"label": "Cw_f", "latex": "Cw\\_f", "excel": "Cw_f", "coef": 33.8206},
+    {"label": "phyllosilicates", "latex": "phyllosilicates", "excel": "phyllosilicates", "coef": -18.4575},
+    {"label": "P20", "latex": "P20", "excel": "P20", "coef": -13.1245},
+    {
+        "label": "muscovite_added",
+        "latex": "muscovite\\_added",
+        "excel": "muscovite_added",
+        "coef": 12.0953,
+    },
+    {
+        "label": "muscovite_total",
+        "latex": "muscovite\\_total",
+        "excel": "muscovite_total",
+        "coef": 10.0835,
+    },
+]
+
 
 def _latex_label(text: str) -> str:
     """Rend un libellé LaTeX sûr (sans caractères spéciaux non échappés)."""
@@ -117,6 +150,86 @@ def _format_metric(value: object, digits: int = 3) -> str:
     except (TypeError, ValueError):
         return "n/a"
     return f"{val:.{digits}f}"
+
+
+def _render_classic_equation_display() -> None:
+    """Affiche l'équation classique en 3 formats lisibles (texte, LaTeX, Excel)."""
+    st.markdown("### Équation lisible (texte)")
+    lines = [f"UCS (kPa) =\n  {DISPLAY_INTERCEPT:.3f}"]
+    for term in DISPLAY_TERMS:
+        coef = term["coef"]
+        sign = "+" if coef >= 0 else "-"
+        lines.append(f"  {sign} {abs(coef):.3f} × {term['label']}")
+    lines.append("  + bonus_binder")
+    text_block = "\n".join(lines)
+    st.code(text_block, language="text")
+    st.markdown(
+        "où :\n"
+        f"- bonus_binder = +{DISPLAY_BONUS_20G80S:.3f} si Binder = 20G80S\n"
+        f"- bonus_binder = {DISPLAY_BONUS_GUL:.3f} si Binder = GUL\n"
+        "- bonus_binder = 0 sinon\n"
+        "\n(P20, P80 en µm ; Ad en %)"
+    )
+
+    st.markdown("### Équation LaTeX")
+    # Construction multi-lignes pour éviter une ligne trop longue.
+    line1 = (
+        f"\\mathrm{{UCS}} = {DISPLAY_INTERCEPT:.3f}"
+        f" {DISPLAY_TERMS[0]['coef']:+.3f}\\, {DISPLAY_TERMS[0]['latex']}"
+        f" {DISPLAY_TERMS[1]['coef']:+.3f}\\, {DISPLAY_TERMS[1]['latex']}"
+        f" {DISPLAY_TERMS[2]['coef']:+.3f}\\, {DISPLAY_TERMS[2]['latex']}"
+    )
+    line2 = (
+        f"\\quad {DISPLAY_TERMS[3]['coef']:+.3f}\\, {DISPLAY_TERMS[3]['latex']}"
+        f" {DISPLAY_TERMS[4]['coef']:+.3f}\\, {DISPLAY_TERMS[4]['latex']}"
+        f" {DISPLAY_TERMS[5]['coef']:+.3f}\\, {DISPLAY_TERMS[5]['latex']}"
+    )
+    line3 = (
+        f"\\quad {DISPLAY_TERMS[6]['coef']:+.3f}\\, {DISPLAY_TERMS[6]['latex']}"
+        f" {DISPLAY_TERMS[7]['coef']:+.3f}\\, {DISPLAY_TERMS[7]['latex']}"
+    )
+    line4 = (
+        f"\\quad {DISPLAY_TERMS[8]['coef']:+.3f}\\, {DISPLAY_TERMS[8]['latex']}"
+        f" {DISPLAY_TERMS[9]['coef']:+.3f}\\, {DISPLAY_TERMS[9]['latex']}"
+        " + bonus_{{binder}}"
+    )
+    st.latex(
+        "\\begin{aligned}"
+        + " \\\\ ".join([line1, line2, line3, line4])
+        + "\\end{aligned}"
+    )
+    st.latex(
+        "\\begin{aligned}"
+        "bonus_{binder} ="
+        "\\begin{cases}"
+        f"+{DISPLAY_BONUS_20G80S:.3f} & \\text{{si Binder = 20G80S}} \\\\"
+        f"{DISPLAY_BONUS_GUL:.3f} & \\text{{si Binder = GUL}} \\\\"
+        "0 & \\text{sinon}"
+        "\\end{cases}"
+        "\\end{aligned}"
+    )
+
+    st.markdown("### Formule Excel (copier-coller)")
+    excel_lines = [
+        f"={DISPLAY_INTERCEPT:.3f}",
+    ]
+    for term in DISPLAY_TERMS:
+        coef = term["coef"]
+        sign = "+" if coef >= 0 else "-"
+        excel_lines.append(f" {sign}{abs(coef):.3f}*{term['excel']}")
+    excel_lines.append(
+        f" +IF(Binder=\"20G80S\",{DISPLAY_BONUS_20G80S:.3f},"
+        f"IF(Binder=\"GUL\",{DISPLAY_BONUS_GUL:.3f},0))"
+    )
+    st.code("\n".join(excel_lines), language="text")
+    st.caption("Adapter les noms des cellules/colonnes si besoin.")
+
+    st.info(
+        "Comment lire la formule ?\n"
+        "- Coefficients + : UCS augmente quand la variable augmente (toutes choses égales).\n"
+        "- Coefficients − : UCS diminue quand la variable augmente.\n"
+        "- Valable dans la plage des données L01 NEW."
+    )
 
 
 def _build_inputs(equation: dict, defaults: dict[str, float]) -> dict:
@@ -280,13 +393,7 @@ def main() -> None:
         with col_b:
             st.metric("RMSE (kPa)", _format_metric(metrics.get("rmse"), digits=1))
 
-        st.markdown("Aperçu de l’équation (LaTeX) :")
-        _render_equation_block(equation)
-
-        eq_text = equation.get("equation_text") or _equation_latex(equation)
-        with st.expander("Équation copiable"):
-            st.text_area("Équation", value=eq_text, height=150)
-            st.caption("Sélectionne le texte ci-dessus puis Ctrl+C.")
+        _render_classic_equation_display()
 
         section_header("Calculateur UCS")
         binder_values = equation.get("binder_values", ["GUL", "20G80S"])
