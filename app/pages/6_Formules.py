@@ -22,35 +22,56 @@ DEFAULT_COMMAND = (
 
 
 def _latex_label(text: str) -> str:
-    # Evite les erreurs LaTeX en transformant le label en texte "safe".
-    safe = []
+    """Rend un libellé LaTeX sûr (sans caractères spéciaux non échappés)."""
+    if not text:
+        return "\\mathrm{}"
+    # Normalisation simple : on remplace les caractères problématiques.
+    cleaned = []
     for ch in text:
         if ch.isalnum():
-            safe.append(ch)
+            # Evite les caractères non-ASCII (µ, etc.) qui cassent KaTeX.
+            cleaned.append(ch if ch.isascii() else "_")
+        elif ch in {" ", "-", "/", "%", "(", ")", "[", "]"}:
+            cleaned.append("_")
+        elif ch == "=":
+            cleaned.append("=")
         elif ch in {".", "_"}:
-            safe.append(ch)
+            cleaned.append("_")
         else:
-            safe.append("_")
-    label = "".join(safe).replace("__", "_")
+            cleaned.append("_")
+    label = "".join(cleaned)
+    while "__" in label:
+        label = label.replace("__", "_")
+    label = label.strip("_")
+    # Echappe les underscores pour éviter les sous-indices accidentels.
+    label = label.replace("_", "\\_")
     return f"\\mathrm{{{label}}}"
 
 
 def _equation_latex(equation: dict, max_terms: int = 12) -> str:
+    """Construit un aperçu LaTeX lisible (avec sauts de ligne)."""
     terms = equation.get("terms", [])
     if not terms:
         return ""
-    parts = [f"{equation.get('intercept', 0.0):.3f}"]
-    for term in terms[:max_terms]:
+    intercept = float(equation.get("intercept", 0.0))
+    lines = []
+    line = f"\\mathrm{{UCS}} = {intercept:.3f}"
+    for idx, term in enumerate(terms[:max_terms], start=1):
         name = term.get("term_name", "")
         coef = float(term.get("coefficient", 0.0))
         if term.get("term_type") == "categorical":
             label = name.replace("Binder_", "Binder=")
         else:
             label = name
-        parts.append(f"{coef:+.3f}\\times {_latex_label(label)}")
+        line += f" {coef:+.3f}\\times {_latex_label(label)}"
+        if idx % 4 == 0:
+            lines.append(line)
+            line = ""
+    if line:
+        lines.append(line)
     if len(terms) > max_terms:
-        parts.append("+ ...")
-    return "UCS = " + " ".join(parts)
+        lines.append("+ \\dots")
+    return "\\begin{aligned}" + " \\\\ ".join(lines) + "\\end{aligned}"
 
 
 def _render_equation_block(equation: dict) -> None:
@@ -87,6 +108,15 @@ def _numeric_step(value: float) -> float:
     if abs_val >= 10:
         return 0.1
     return 0.01
+
+
+def _format_metric(value: object, digits: int = 3) -> str:
+    """Formate une métrique en texte court."""
+    try:
+        val = float(value)
+    except (TypeError, ValueError):
+        return "n/a"
+    return f"{val:.{digits}f}"
 
 
 def _build_inputs(equation: dict, defaults: dict[str, float]) -> dict:
@@ -246,9 +276,9 @@ def main() -> None:
         metrics = equation.get("metrics", {}) or {}
         col_a, col_b = st.columns(2)
         with col_a:
-            st.metric("R\u00b2", metrics.get("r2", "n/a"))
+            st.metric("R\u00b2", _format_metric(metrics.get("r2")))
         with col_b:
-            st.metric("RMSE (kPa)", metrics.get("rmse", "n/a"))
+            st.metric("RMSE (kPa)", _format_metric(metrics.get("rmse"), digits=1))
 
         st.markdown("Aperçu de l’équation (LaTeX) :")
         _render_equation_block(equation)
@@ -302,7 +332,10 @@ def main() -> None:
             formulas_dir / "global_spline_enet_metrics.json"
         )
         if global_metrics:
-            st.markdown(f"R\u00b2 = {global_metrics.get('r2', 'n/a')}, RMSE = {global_metrics.get('rmse', 'n/a')} kPa")
+            st.markdown(
+                f"R\u00b2 = {_format_metric(global_metrics.get('r2'))}, "
+                f"RMSE = {_format_metric(global_metrics.get('rmse'), digits=1)} kPa"
+            )
         if global_md:
             st.markdown(global_md)
         st.info("Formule spline utilisable via le .joblib (pas à la main).")
