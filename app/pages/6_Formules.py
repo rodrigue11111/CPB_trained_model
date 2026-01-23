@@ -162,9 +162,10 @@ def main() -> None:
     with tabs[0]:
         section_header("Equation classique (UCS)")
         metrics = equation.get("metrics", {}) or {}
+        r2_label = "R\u00b2"
         col_a, col_b = st.columns(2)
         with col_a:
-            st.markdown(f"{badge('R\u00b2', 'ok')} {metrics.get('r2', 'n/a')}")
+            st.markdown(f"{badge(r2_label, 'ok')} {metrics.get('r2', 'n/a')}")
         with col_b:
             st.markdown(f"{badge('RMSE', 'warn')} {metrics.get('rmse', 'n/a')} kPa")
 
