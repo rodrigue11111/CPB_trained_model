@@ -175,16 +175,32 @@ def check_out_of_distribution(inputs: dict, profile_key: str = "L01_NEW") -> lis
     if profile is None:
         return ["Plage inconnue sur le cloud (profil indisponible)."]
 
+    def _normalize(name: str) -> str:
+        # Nettoyage simple pour corriger les artefacts d'encodage (ex: Âµ).
+        return str(name).replace("Â", "").strip()
+
+    normalized_map = {}
+    for col in profile.numeric_stats.keys():
+        normalized_map[_normalize(col)] = col
+
     warnings = []
     for name, value in inputs.items():
         if name in {"Binder", "Tailings"}:
             continue
-        feature_profile = data_profiles.get_feature_profile(profile, name)
+        lookup_name = normalized_map.get(_normalize(name), name)
+        feature_profile = data_profiles.get_feature_profile(profile, lookup_name)
         if not feature_profile:
             continue
         result = data_profiles.ood_level(value, feature_profile)
+        bounds_text = data_profiles.format_bounds(feature_profile)
         if result["level"] == "out":
-            warnings.append(f"{name}: hors domaine d'entra\u00eenement.")
+            msg = f"{name}: hors domaine d'entra\u00eenement."
+            if bounds_text:
+                msg += f" ({bounds_text})"
+            warnings.append(msg)
         elif result["level"] == "warn":
-            warnings.append(f"{name}: proche des bornes d'entra\u00eenement.")
+            msg = f"{name}: proche des bornes d'entra\u00eenement."
+            if bounds_text:
+                msg += f" ({bounds_text})"
+            warnings.append(msg)
     return warnings

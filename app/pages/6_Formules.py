@@ -152,6 +152,11 @@ def _format_metric(value: object, digits: int = 3) -> str:
     return f"{val:.{digits}f}"
 
 
+def _display_feature_label(name: str) -> str:
+    """Rend un libellé plus propre pour l'UI (corrige Âµ)."""
+    return str(name).replace("Â", "")
+
+
 def _render_classic_equation_display() -> None:
     """Affiche l'équation classique en 3 formats lisibles (texte, LaTeX, Excel)."""
     st.markdown("### Équation lisible (texte)")
@@ -272,7 +277,7 @@ def _build_inputs(equation: dict, defaults: dict[str, float]) -> dict:
                 step = _numeric_step(default_val)
                 with col:
                     inputs[feat] = st.number_input(
-                        feat,
+                        _display_feature_label(feat),
                         value=default_val,
                         step=step,
                         format="%.4f",
