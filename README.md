@@ -124,6 +124,19 @@ python scripts/explain_ucs_relationships.py --models-dir outputs/final_models/FI
 
 2) Ouvrir la page "Relations (UCS)" dans l'app Streamlit et choisir le dossier.
 
+## Formules L01 NEW
+
+Formules interpretable pour L01 NEW (une globale type GAM + regles par cas) :
+```bash
+python scripts/build_formulas_l01_new.py --dataset-xlsx data/L01-dataset.xlsx --models-dir outputs/final_models/FINAL_new_best --out-dir outputs/formulas/L01_new --seed 42
+```
+
+Sorties principales :
+- global_spline_enet.joblib (formule globale)
+- global_spline_enet_coefficients.csv + global_formula.md
+- rules_tree_*.txt + tree_metrics.json
+- fidelity_metrics.json + comparaison_table.csv
+
 ## Deploiement Streamlit Cloud (pas a pas)
 
 1) Pousser le repo sur GitHub (inclure streamlit_app.py et le dossier app/).
