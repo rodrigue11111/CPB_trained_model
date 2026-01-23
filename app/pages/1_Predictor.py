@@ -164,15 +164,16 @@ def main() -> None:
                     stats = get_feature_profile(profile, col)
                     bounds_text = format_bounds(stats)
                     status = ood_level(value, stats)
-                    st.markdown(
-                        f"{_badge_for_level(status['level'])} " +
-                        (f"Training: {bounds_text}" if bounds_text else "Profil insuffisant"),
-                        unsafe_allow_html=True,
-                    )
-                    if status["level"] == "out":
-                        st.caption(
-                            "Valeur hors distribution : la prediction peut etre moins fiable."
+                    if status["level"] != "ok":
+                        st.markdown(
+                            f"{_badge_for_level(status['level'])} "
+                            + (f"Training: {bounds_text}" if bounds_text else "Profil insuffisant"),
+                            unsafe_allow_html=True,
                         )
+                        if status["level"] == "out":
+                            st.caption(
+                                "Valeur hors distribution : la prediction peut etre moins fiable."
+                            )
 
         if has_ratio:
             section_header("Param\u00e8tres additionnels")
