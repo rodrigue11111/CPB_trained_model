@@ -96,12 +96,12 @@ Astuce : si aucun candidat ne passe, augmenter N ou rel\u00e2cher les seuils.
 **Mod\u00e8les finaux par dataset**
 - **WW** : UCS = GradientBoostingRegressor (GBR), Slump = GradientBoostingRegressor (GBR)
 - **L01 OLD** : UCS = ExtraTreesRegressor (ET), Slump = GradientBoostingRegressor (GBR)
-- **L01 NEW** : UCS = ExtraTreesRegressor (ET), Slump = GradientBoostingRegressor (GBR)
+- **L01 NEW** : UCS = HistGradientBoostingRegressor (HGB), Slump = GradientBoostingRegressor (GBR)
 
 **M\u00e9triques UCS (R\u00b2 / RMSE kPa)**
 - **WW (OLD)** : R\u00b2 ~ 0.938, RMSE ~ 168.5
 - **L01 OLD** : R\u00b2 ~ 0.459, RMSE ~ 359.4
-- **L01 NEW** : R\u00b2 ~ 0.859, RMSE ~ 230.4
+- **L01 NEW** : R\u00b2 ~ 0.868, RMSE ~ 223.1 (meilleur run par score)
 
 *(Info Slump)* : RMSE ~ 26-43 mm selon le dataset.
 '''
@@ -110,8 +110,7 @@ Astuce : si aucun candidat ne passe, augmenter N ou rel\u00e2cher les seuils.
     st.markdown(
         '''
 ### Mod\u00e8les test\u00e9s dans les sweeps (non retenus)
-- **RandomForestRegressor (RF)** : solide mais pas meilleur que GBR/ET sur le compromis R\u00b2/RMSE.
-- **HistGradientBoostingRegressor (HGB)** : rapide, mais r\u00e9sultats moins stables selon les seeds.
+- **RandomForestRegressor (RF)** : solide mais pas meilleur que GBR/ET/HGB sur le compromis R\u00b2/RMSE.
 - **Support Vector Regressor (SVR)** : sensible aux hyperparam\u00e8tres et \u00e0 l'\u00e9chelle des variables.
 - **ElasticNet** : mod\u00e8le lin\u00e9aire r\u00e9gularis\u00e9, sous-ajust\u00e9 pour des relations non lin\u00e9aires.
 
