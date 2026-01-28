@@ -62,6 +62,16 @@ def _safe_selectbox(label: str, options: list[str], key: str, default: str | Non
     return st.selectbox(label, options, index=index, key=key)
 
 
+def _parse_float(value: object) -> float | None:
+    """Convertit une saisie texte en float (None si invalide)."""
+    if value is None:
+        return None
+    try:
+        return float(str(value).replace(",", "."))
+    except (TypeError, ValueError):
+        return None
+
+
 def main() -> None:
     st.title("Predicteur CPB")
     load_css("app/ui/styles.css")
@@ -144,6 +154,8 @@ def main() -> None:
     for col in num_cols_input:
         sections[_classify_column(col)].append(col)
 
+    invalid_fields: list[str] = []
+    raw_values: dict[str, object] = {}
     for section, cols in sections.items():
         if not cols:
             continue
@@ -153,13 +165,19 @@ def main() -> None:
             if profile and col in profile.numeric_stats:
                 default_val = profile.numeric_stats[col].get("mean", 0.0) or 0.0
             key = f"pred_{col}"
-            value = st.number_input(
+            default_text = st.session_state.get(key, f"{default_val:.4f}")
+            raw = st.text_input(
                 col,
-                value=float(st.session_state.get(key, default_val)),
+                value=str(default_text),
                 help=_unit_help(col),
                 key=key,
             )
-            inputs[col] = value
+            raw_values[col] = raw
+            parsed = _parse_float(raw)
+            if parsed is None:
+                invalid_fields.append(col)
+            else:
+                inputs[col] = parsed
 
     if has_ratio:
         section_header("Parametres additionnels")
@@ -175,12 +193,12 @@ def main() -> None:
     if profile and num_cols_input:
         warnings_to_show = []
         for col in num_cols_input:
-            key = f"pred_{col}"
-            if key not in st.session_state:
+            value = raw_values.get(col)
+            parsed = _parse_float(value)
+            if parsed is None:
                 continue
-            value = st.session_state.get(key)
             stats = get_feature_profile(profile, col)
-            status = ood_level(value, stats)
+            status = ood_level(parsed, stats)
             if status["level"] != "ok":
                 bounds_text = format_bounds(stats)
                 warnings_to_show.append(
@@ -204,6 +222,13 @@ def main() -> None:
             col for col in required_cols if col != "muscovite_ratio"
         ]
         missing = validate_inputs(inputs, required_cols_input)
+        if invalid_fields:
+            st.error(
+                "Valeurs invalides : "
+                + ", ".join(invalid_fields)
+                + ". Utiliser un nombre (ex: 5.9)."
+            )
+            return
         if missing:
             st.error(f"Champs manquants: {', '.join(missing)}")
             return
