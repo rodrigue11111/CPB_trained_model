@@ -117,61 +117,60 @@ def main() -> None:
     inputs: dict = {}
     num_cols_input: list[str] = []
 
-    with st.form("predictor_form"):
-        cat_cols = features["categorical"]
-        num_cols = features["numeric"]
-        has_ratio = "muscovite_ratio" in num_cols
-        num_cols_input = [col for col in num_cols if col != "muscovite_ratio"]
+    cat_cols = features["categorical"]
+    num_cols = features["numeric"]
+    has_ratio = "muscovite_ratio" in num_cols
+    num_cols_input = [col for col in num_cols if col != "muscovite_ratio"]
 
-        if cat_cols:
-            section_header("Parametres categoriels")
-            for col in cat_cols:
-                if col == "Tailings":
-                    inputs[col] = _safe_selectbox(col, [tailings], key=f"pred_{col}", default=tailings)
-                    continue
-                if col == "Binder" and profile:
-                    options = profile.categorical_values.get("Binder", [])
-                elif col in cat_values:
-                    options = cat_values[col]
-                else:
-                    options = ["GUL", "Slag"]
-                inputs[col] = _safe_selectbox(col, options, key=f"pred_{col}")
-
-        sections = {
-            "Ingredients / Dosages": [],
-            "Granulometrie": [],
-            "Parametres additionnels": [],
-        }
-        for col in num_cols_input:
-            sections[_classify_column(col)].append(col)
-
-        for section, cols in sections.items():
-            if not cols:
+    if cat_cols:
+        section_header("Parametres categoriels")
+        for col in cat_cols:
+            if col == "Tailings":
+                inputs[col] = _safe_selectbox(col, [tailings], key=f"pred_{col}", default=tailings)
                 continue
-            section_header(section)
-            for col in cols:
-                default_val = 0.0
-                if profile and col in profile.numeric_stats:
-                    default_val = profile.numeric_stats[col].get("mean", 0.0) or 0.0
-                key = f"pred_{col}"
-                value = st.number_input(
-                    col,
-                    value=float(st.session_state.get(key, default_val)),
-                    help=_unit_help(col),
-                    key=key,
-                )
-                inputs[col] = value
+            if col == "Binder" and profile:
+                options = profile.categorical_values.get("Binder", [])
+            elif col in cat_values:
+                options = cat_values[col]
+            else:
+                options = ["GUL", "Slag"]
+            inputs[col] = _safe_selectbox(col, options, key=f"pred_{col}")
 
-        if has_ratio:
-            section_header("Parametres additionnels")
-            st.text_input(
-                "muscovite_ratio (calcule automatiquement)",
-                value="sera calcule apres prediction",
-                disabled=True,
-                key="muscovite_ratio_placeholder",
+    sections = {
+        "Ingredients / Dosages": [],
+        "Granulometrie": [],
+        "Parametres additionnels": [],
+    }
+    for col in num_cols_input:
+        sections[_classify_column(col)].append(col)
+
+    for section, cols in sections.items():
+        if not cols:
+            continue
+        section_header(section)
+        for col in cols:
+            default_val = 0.0
+            if profile and col in profile.numeric_stats:
+                default_val = profile.numeric_stats[col].get("mean", 0.0) or 0.0
+            key = f"pred_{col}"
+            value = st.number_input(
+                col,
+                value=float(st.session_state.get(key, default_val)),
+                help=_unit_help(col),
+                key=key,
             )
+            inputs[col] = value
 
-        submitted = st.form_submit_button("Predire")
+    if has_ratio:
+        section_header("Parametres additionnels")
+        st.text_input(
+            "muscovite_ratio (calcule automatiquement)",
+            value="sera calcule apres prediction",
+            disabled=True,
+            key="muscovite_ratio_placeholder",
+        )
+
+    submitted = st.button("Predire")
 
     if profile and num_cols_input:
         warnings_to_show = []
